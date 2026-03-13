@@ -1,0 +1,176 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// SQLite no soporta enums; usamos String con los mismos valores
+model Liga {
+  id          String         @id @default(uuid())
+  nombre      String
+  temporada   String
+  categorias  String         @default("[\"primera\",\"segunda\",\"veteranos\",\"femenil\",\"varonil\"]")
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  membresias  MembresiaLiga[]
+  equipos     Equipo[]
+  canchas     Cancha[]
+  partidos    Partido[]
+}
+
+// Usuario global: puede pertenecer a varias ligas mediante MembresiaLiga
+model Usuario {
+  id           String         @id @default(uuid())
+  nombre       String
+  pinHash      String?
+  email        String?
+  passwordHash String?
+  isSuperAdmin Boolean        @default(false)
+  activo       Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  membresias   MembresiaLiga[]
+  partidos     Partido[]      @relation("PartidosAnotados")
+}
+
+// Rol por liga: un usuario puede tener distintos roles en distintas ligas
+model MembresiaLiga {
+  id        String   @id @default(uuid())
+  ligaId    String
+  usuarioId String
+  rol       String   // superadmin | admin_liga | capturista_roster | anotador_partido | consulta
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  liga      Liga     @relation(fields: [ligaId], references: [id], onDelete: Cascade)
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@unique([ligaId, usuarioId, rol])
+  @@index([ligaId])
+  @@index([usuarioId])
+}
+
+model Equipo {
+  id        String    @id @default(uuid())
+  ligaId    String
+  nombre    String
+  categoria String
+  activo    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  liga      Liga      @relation(fields: [ligaId], references: [id], onDelete: Cascade)
+  jugadores Jugador[]
+  partidosLocal     Partido[]         @relation("Local")
+  partidosVisitante Partido[]         @relation("Visitante")
+  plantillas        PlantillaPartido[]
+  incidencias       Incidencia[]
+}
+
+model Jugador {
+  id        String   @id @default(uuid())
+  equipoId  String
+  nombre    String
+  apellido  String
+  numero    Int
+  invitado  Boolean  @default(false)
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  equipo    Equipo   @relation(fields: [equipoId], references: [id], onDelete: Cascade)
+  plantillas PlantillaPartido[]
+  eventos   Evento[] @relation("JugadorEvento")
+  eventosEntra Evento[] @relation("JugadorEntra")
+  incidencias Incidencia[]
+  @@unique([equipoId, numero])
+}
+
+model Cancha {
+  id        String   @id @default(uuid())
+  ligaId    String
+  nombre    String
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  liga      Liga     @relation(fields: [ligaId], references: [id], onDelete: Cascade)
+  partidos  Partido[]
+}
+
+model Partido {
+  id                String         @id
+  ligaId            String
+  localEquipoId     String
+  visitanteEquipoId String
+  canchaId          String
+  categoria         String
+  fecha             String
+  horaInicio        String
+  estado            String         @default("programado")
+  folio             String?        @unique
+  anotadorId        String
+  fotoMarcadorUrl   String?
+  fotosOpcionales   String?        @default("[]")
+  cerradoAt         DateTime?
+  localVersion      Int            @default(1)
+  serverVersion     Int            @default(1)
+  lastSyncedAt      DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  liga              Liga           @relation(fields: [ligaId], references: [id], onDelete: Cascade)
+  localEquipo       Equipo         @relation("Local", fields: [localEquipoId], references: [id])
+  visitanteEquipo   Equipo         @relation("Visitante", fields: [visitanteEquipoId], references: [id])
+  cancha            Cancha         @relation(fields: [canchaId], references: [id])
+  anotador          Usuario        @relation("PartidosAnotados", fields: [anotadorId], references: [id])
+  plantilla         PlantillaPartido[]
+  eventos           Evento[]
+  incidencias       Incidencia[]
+}
+
+model PlantillaPartido {
+  id               String   @id @default(uuid())
+  partidoId        String
+  equipoId         String
+  jugadorId        String
+  enCanchaInicial  Boolean  @default(false)
+  esCapitan        Boolean  @default(false)
+  esCoach          Boolean  @default(false)
+  invitado         Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  partido          Partido  @relation(fields: [partidoId], references: [id], onDelete: Cascade)
+  equipo           Equipo   @relation(fields: [equipoId], references: [id])
+  jugador          Jugador  @relation(fields: [jugadorId], references: [id])
+  @@unique([partidoId, jugadorId])
+}
+
+model Evento {
+  id               String    @id
+  partidoId        String
+  tipo             String
+  jugadorId        String
+  jugadorEntraId   String?
+  minutoPartido    Float
+  cuarto           Int
+  orden            Int
+  createdAt        DateTime  @default(now())
+  serverReceivedAt DateTime?
+  partido          Partido   @relation(fields: [partidoId], references: [id], onDelete: Cascade)
+  jugador          Jugador   @relation("JugadorEvento", fields: [jugadorId], references: [id])
+  jugadorEntra     Jugador?  @relation("JugadorEntra", fields: [jugadorEntraId], references: [id])
+}
+
+model Incidencia {
+  id        String    @id @default(uuid())
+  partidoId String
+  tipo      String
+  equipoId  String?
+  jugadorId String?
+  motivo    String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  partido   Partido   @relation(fields: [partidoId], references: [id], onDelete: Cascade)
+  equipo    Equipo?   @relation(fields: [equipoId], references: [id])
+  jugador   Jugador?  @relation(fields: [jugadorId], references: [id])
+}

@@ -1,0 +1,112 @@
+# 4. Validaciones críticas
+
+Reglas de negocio que la app debe aplicar **siempre en cliente** (y el servidor debe revalidar). Incluyen: inicio con 5 jugadores, faltas, expulsiones, invitados (solo con internet) y cierre del partido.
+
+---
+
+## 4.1 Inicio del partido (5 jugadores)
+
+- **Regla:** Un partido NO puede iniciar si algún equipo tiene menos de 5 jugadores presentes (en plantilla inicial).
+- **Implementación:**
+  - En pantalla "Configuración de mesa": cada equipo debe tener exactamente 5 jugadores con "En cancha" = true (plantilla inicial).
+  - El botón "Iniciar partido" está **deshabilitado** hasta que:
+    - Local: 5 jugadores en cancha.
+    - Visitante: 5 jugadores en cancha.
+  - Mensaje visible: "Se requieren al menos 5 jugadores por equipo" si alguno tiene &lt; 5.
+- **Default por no presentación:**
+  - Si la liga define un tiempo máximo para completar el 5to jugador y no se cumple, se permite "Registrar default" (equipo que pierde por no presentación).
+  - Crear incidencia tipo `default_no_presentacion` y marcar partido como `default_local` o `default_visitante` según quién no se presentó.
+
+---
+
+## 4.2 Capitán y coach
+
+- **Regla:** Debe definirse coach y capitán por equipo; el capitán debe estar **en la cancha** (en plantilla inicial).
+- **Implementación:**
+  - En "Configuración de mesa": selectores "Coach" y "Capitán" por equipo.
+  - Validación: el jugador elegido como capitán debe tener "En cancha" = true.
+  - Si el usuario intenta marcar como capitán a alguien que no está en cancha: mensaje "El capitán debe estar en la cancha" y no permitir iniciar partido hasta corregir.
+
+---
+
+## 4.3 Faltas personales (máx. 5)
+
+- **Regla:** Máximo 5 faltas personales por jugador; al llegar a 5 el jugador debe salir y ser sustituido.
+- **Implementación:**
+  - Por cada evento `falta_personal` del jugador, el cliente cuenta las faltas personales de ese jugador en el partido (solo `falta_personal`; no antideportivas/técnicas para este límite, según FIBA).
+  - Cuando el conteo llega a **4**: mostrar alerta no intrusiva (toast/banner): "⚠ [Nombre] (#[dorsal]) tiene 4 faltas".
+  - Cuando el conteo llega a **5**: 
+    - Mostrar alerta: "🚫 [Nombre] (#[dorsal]) tiene 5 faltas – debe salir."
+    - Opcional: bloquear nuevos eventos para ese jugador (solo permitir "Sustitución - Sale") hasta que se registre la sustitución.
+  - El servidor recalcula faltas desde eventos y aplica la misma regla (no permitir 6ª falta personal para ese jugador).
+
+---
+
+## 4.4 Expulsión (2 antideportivas o 2 técnicas)
+
+- **Regla:** Expulsión por 2 faltas antideportivas O 2 faltas técnicas.
+- **Implementación:**
+  - Cliente mantiene conteo por jugador: `faltas_antideportivas`, `faltas_tecnicas`.
+  - Al registrar 2ª antideportiva o 2ª técnica:
+    - Mostrar alerta: "🚫 [Nombre] expulsado (2 [antideportivas|técnicas])."
+    - Registrar incidencia tipo `expulsion_antideportivas` o `expulsion_tecnicas` con `jugadorId`.
+    - El jugador debe salir (sustitución); opcionalmente bloquear más eventos para ese jugador en ese partido.
+  - Servidor: mismo conteo desde eventos; rechazar nuevo evento de falta antideportiva/técnica para ese jugador si ya está expulsado.
+
+---
+
+## 4.5 Jugador invitado (solo con internet)
+
+- **Regla:**  
+  - No puede estar inscrito en otro equipo de la misma liga en categoría superior (o si está, debe ser misma categoría o menor).  
+  - No puede jugar dos partidos en el mismo horario.  
+  - No puede haber jugado otro partido previamente ese día.
+- **Implementación:**
+  - Estas validaciones requieren datos de otros equipos y partidos del día; por tanto se ejecutan **solo si hay conexión**.
+  - Si hay internet: al agregar "Jugador invitado", la app (o el servidor vía API) valida:
+    - Consulta jugadores por equipo/categoría y partidos del día.
+    - Si está en otro equipo de categoría superior → rechazar.
+    - Si tiene partido a la misma hora → rechazar.
+    - Si ya jugó otro partido ese día → rechazar.
+  - Si **no** hay internet: permitir agregar invitado con aviso: "La validación del jugador invitado se realizará al sincronizar. Si no cumple las reglas, el partido podría ser objeto de incidencia."
+
+---
+
+## 4.6 Cierre del partido (foto obligatoria, folio)
+
+- **Regla:** Al terminar el 4to cuarto se cierra el partido; se solicita foto **obligatoria** del marcador final; se genera folio único.
+- **Implementación:**
+  - Botón "Cerrar partido" solo habilitado cuando:
+    - Estado del partido es "en_curso" y se ha marcado como "Fin del 4to cuarto" (o crono llegó a 40 min si está implementado).
+    - Hay una foto del marcador cargada (obligatoria).
+  - Al confirmar cierre:
+    - Si hay red: `POST /partidos/:id/cerrar` con foto; servidor genera folio y devuelve; cliente guarda folio y `estado = finalizado`, `cerradoAt = now`.
+    - Si no hay red: guardar localmente `estado = pendiente_cierre`, foto en local; al sincronizar, subir foto y llamar a cerrar; entonces recibir folio y actualizar local.
+  - No permitir nuevos eventos una vez cerrado; solo correcciones justificadas vía audit log (ver siguiente sección).
+
+---
+
+## 4.7 Bloqueo del partido cerrado y audit log
+
+- **Regla:** Una vez cerrado el partido, solo se permiten correcciones justificadas; se registra quién, cuándo y motivo.
+- **Implementación:**
+  - Partido con `estado = finalizado` y `cerradoAt` no null: en cliente no se permiten nuevos eventos ni edición de eventos (o se ocultan botones de captura).
+  - Si el organizador/admin permite "corrección":
+    - Flujo específico: desbloqueo temporal o pantalla de corrección que pide motivo y registra en `audit_log` (partidoId, usuarioId, accion: correccion_evento, detalle, createdAt).
+    - Servidor: endpoint protegido (ej. solo admin_liga) para PATCH de evento o anulación; siempre escribir en audit_log.
+
+---
+
+## 4.8 Resumen de validaciones por capa
+
+| Validación | Cliente | Servidor |
+|------------|---------|----------|
+| 5 jugadores para iniciar | ✓ Botón deshabilitado + mensaje | ✓ Revalidar al recibir partido/plantilla |
+| Capitán en cancha | ✓ No permitir iniciar si no cumple | ✓ Revalidar |
+| 5 faltas → salir | ✓ Conteo + alerta + opcional bloqueo | ✓ Conteo desde eventos; rechazar 6ª |
+| 2 antideportivas/2 técnicas → expulsión | ✓ Conteo + alerta + incidencia | ✓ Conteo + incidencia |
+| Jugador invitado | ✓ Solo si hay red; aviso si offline | ✓ Siempre revalidar al recibir plantilla |
+| Foto marcador para cerrar | ✓ Obligatoria para habilitar "Cerrar" | ✓ Obligatoria en POST cerrar |
+| Partido cerrado sin edición | ✓ No permitir nuevos eventos | ✓ Rechazar nuevos eventos; audit en correcciones |
+
+Con esto se cubren las reglas críticas para **confiabilidad** y **validez** del partido sin matar el MVP.

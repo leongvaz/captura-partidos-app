@@ -1,0 +1,247 @@
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useAuthStore, ROLES_PARTIDO } from '@/store/authStore';
+import { api } from '@/lib/api';
+import { db } from '@/lib/db';
+import type { Partido } from '@/types/entities';
+import type { PartidoLocal } from '@/lib/db';
+
+export default function PartidosList() {
+  const ligaId = useAuthStore((s) => s.liga?.id);
+  const canWritePartido = useAuthStore((s) => s.hasRole(...ROLES_PARTIDO));
+  const [partidos, setPartidos] = useState<(Partido | PartidoLocal)[]>([]);
+  const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
+  const [loading, setLoading] = useState(true);
+  const [modalDefault, setModalDefault] = useState<{ partidoId: string; partido: Partido | PartidoLocal } | null>(null);
+  const [modalGanador, setModalGanador] = useState<'local' | 'visitante' | null>(null);
+  const [modalMotivo, setModalMotivo] = useState('');
+  const [registrandoDefault, setRegistrandoDefault] = useState(false);
+
+  useEffect(() => {
+    if (!ligaId) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const fromApi = await api<Partido[]>(`/partidos?ligaId=${ligaId}&fecha=${fecha}`);
+        const fromDb = await db.partidos.where('ligaId').equals(ligaId).filter((p) => p.fecha === fecha).toArray();
+        const byId = new Map<string, Partido | PartidoLocal>();
+        for (const p of fromApi) byId.set(p.id, p);
+        for (const p of fromDb) {
+          if (!byId.has(p.id)) byId.set(p.id, p);
+          else {
+            const existing = byId.get(p.id)!;
+            if ((existing as PartidoLocal).synced === false) byId.set(p.id, p);
+          }
+        }
+        if (!cancelled) setPartidos(Array.from(byId.values()));
+      } catch {
+        const fromDb = await db.partidos.where('ligaId').equals(ligaId).filter((p) => p.fecha === fecha).toArray();
+        if (!cancelled) setPartidos(fromDb);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ligaId, fecha]);
+
+  const crearPartido = async () => {
+    if (!ligaId) return;
+    const equipos = await db.equipos.where('ligaId').equals(ligaId).toArray();
+    const canchas = await db.canchas.where('ligaId').equals(ligaId).toArray();
+    if (equipos.length < 2 || !canchas.length) {
+      alert('Necesitas al menos 2 equipos y 1 cancha. Configura la liga.');
+      return;
+    }
+    const id = crypto.randomUUID();
+    const usuarioId = useAuthStore.getState().usuario?.id;
+    const partido: PartidoLocal = {
+      id,
+      ligaId,
+      localEquipoId: equipos[0].id,
+      visitanteEquipoId: equipos[1].id,
+      canchaId: canchas[0].id,
+      categoria: equipos[0].categoria,
+      fecha,
+      horaInicio: '10:00',
+      estado: 'programado',
+      anotadorId: usuarioId || '',
+      localVersion: 1,
+      serverVersion: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      synced: false,
+    };
+    await db.partidos.add(partido);
+    setPartidos((prev) => [...prev, partido]);
+  };
+
+  const confirmarDefault = async () => {
+    if (!modalDefault || !modalGanador) return;
+    setRegistrandoDefault(true);
+    try {
+      const partidoActualizado = await api<Partido>(`/partidos/${modalDefault.partidoId}/registrar-default`, {
+        method: 'POST',
+        body: { ganador: modalGanador, motivo: modalMotivo || undefined },
+      });
+      await db.partidos.put({ ...partidoActualizado, synced: true });
+      setPartidos((prev) => prev.map((p) => (p.id === modalDefault.partidoId ? partidoActualizado : p)));
+      setModalDefault(null);
+      setModalGanador(null);
+      setModalMotivo('');
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo registrar el default. Revisa la conexión.');
+    } finally {
+      setRegistrandoDefault(false);
+    }
+  };
+
+  const abrirModalDefault = (e: React.MouseEvent, p: Partido | PartidoLocal) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setModalDefault({ partidoId: p.id, partido: p });
+    setModalGanador(null);
+    setModalMotivo('');
+  };
+
+  const localNombre = async (id: string) => {
+    const eq = await db.equipos.get(id);
+    return eq?.nombre ?? id.slice(0, 8);
+  };
+  const [nombres, setNombres] = useState<Record<string, string>>({});
+  useEffect(() => {
+    partidos.forEach(async (p) => {
+      const local = await localNombre(p.localEquipoId);
+      const visit = await localNombre(p.visitanteEquipoId);
+      setNombres((prev) => ({ ...prev, [p.localEquipoId]: local, [p.visitanteEquipoId]: visit }));
+    });
+  }, [partidos]);
+
+  return (
+    <div className="p-4 max-w-2xl mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-bold text-slate-100">Partidos del día</h2>
+        <input
+          type="date"
+          value={fecha}
+          onChange={(e) => setFecha(e.target.value)}
+          className="rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
+        />
+      </div>
+      {canWritePartido && (
+        <button
+          type="button"
+          onClick={crearPartido}
+          className="w-full rounded-lg bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 mb-4"
+        >
+          + Nuevo partido
+        </button>
+      )}
+      {loading ? (
+        <p className="text-slate-400 text-center py-8">Cargando...</p>
+      ) : partidos.length === 0 ? (
+        <p className="text-slate-400 text-center py-8">
+          No hay partidos para esta fecha.
+          {canWritePartido && ' Crea uno arriba.'}
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {partidos.map((p) => (
+            <li key={p.id}>
+              <Link
+                to={
+                  canWritePartido
+                    ? p.estado === 'programado'
+                      ? `/partido/${p.id}/config`
+                      : p.estado === 'en_curso'
+                      ? `/partido/${p.id}/captura`
+                      : p.estado === 'finalizado' || p.estado === 'default_local' || p.estado === 'default_visitante'
+                      ? `/partido/${p.id}/acta`
+                      : `/partido/${p.id}/resumen`
+                    : p.estado === 'finalizado' || p.estado === 'default_local' || p.estado === 'default_visitante'
+                    ? `/partido/${p.id}/acta`
+                    : `/partido/${p.id}/resumen`
+                }
+                className="block rounded-xl bg-slate-800 border border-slate-700 p-4 hover:border-primary-600 transition"
+              >
+                <div className="flex justify-between items-center">
+                  <span className="font-medium text-slate-100">
+                    {nombres[p.localEquipoId] ?? 'Local'} vs {nombres[p.visitanteEquipoId] ?? 'Visitante'}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    {canWritePartido && p.estado === 'programado' && (
+                      <button
+                        type="button"
+                        onClick={(e) => abrirModalDefault(e, p)}
+                        className="text-xs px-2 py-1 rounded bg-amber-700 hover:bg-amber-600 text-white"
+                      >
+                        Registrar default
+                      </button>
+                    )}
+                    <span className={`text-xs px-2 py-0.5 rounded ${p.estado === 'finalizado' ? 'bg-slate-600' : p.estado === 'default_local' || p.estado === 'default_visitante' ? 'bg-amber-800' : p.estado === 'en_curso' ? 'bg-emerald-700' : 'bg-slate-600'}`}>
+                      {p.estado}
+                    </span>
+                  </span>
+                </div>
+                <div className="text-sm text-slate-400 mt-1">
+                  {p.categoria} · {p.horaInicio} {p.folio && `· ${p.folio}`}
+                </div>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {modalDefault && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => !registrandoDefault && setModalDefault(null)}>
+          <div className="bg-slate-800 rounded-xl border border-slate-600 p-6 max-w-sm w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-slate-100 mb-4">Registrar partido por default</h3>
+            <p className="text-sm text-slate-400 mb-3">¿Quién gana por no presentación del rival?</p>
+            <div className="flex gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setModalGanador('local')}
+                className={`flex-1 py-2 rounded-lg font-medium ${modalGanador === 'local' ? 'bg-primary-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+              >
+                Local gana
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalGanador('visitante')}
+                className={`flex-1 py-2 rounded-lg font-medium ${modalGanador === 'visitante' ? 'bg-primary-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+              >
+                Visitante gana
+              </button>
+            </div>
+            <label className="block text-sm text-slate-400 mb-1">Motivo (opcional)</label>
+            <input
+              type="text"
+              value={modalMotivo}
+              onChange={(e) => setModalMotivo(e.target.value)}
+              placeholder="Ej. No presentación"
+              className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm mb-4"
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => !registrandoDefault && setModalDefault(null)}
+                className="flex-1 py-2 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarDefault}
+                disabled={!modalGanador || registrandoDefault}
+                className="flex-1 py-2 rounded-lg bg-primary-600 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary-700"
+              >
+                {registrandoDefault ? 'Guardando…' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
