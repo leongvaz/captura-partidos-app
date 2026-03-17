@@ -241,7 +241,7 @@ Ejemplo mínimo de generación con PDFKit:
 
 ## Bloque 5: Cierre offline con foto (closurePending)
 
-**Objetivo:** Guardar foto en local (IndexedDB), cerrar partido en local sin red, cola de cierres; al haber red subir foto y cerrar con idempotencia (clientClosureId). Diferenciar en local: partido **finalizado localmente pero pendiente de sincronizar** (`closurePending: true`) vs partido **ya sincronizado** (tiene folio y no pendiente). **Nomenclatura:** lo que se muestra sin folio **no** se llama "acta oficial". Usar en la UI un nombre explícito: **"Resumen de cierre pendiente"** (o alternativamente "Acta preliminar"). La vista/contenido sin folio debe etiquetarse siempre con uno de estos nombres; "acta" con folio queda para el documento oficial tras sincronizar.
+**Objetivo:** Cerrar partido offline-first, con **foto opcional**. Guardar foto en local (IndexedDB) cuando exista, cerrar partido en local sin red, cola de cierres; al haber red subir (foto si existe) y cerrar con idempotencia (clientClosureId). Diferenciar en local: partido **finalizado localmente pero pendiente de sincronizar** (`closurePending: true`) vs partido **ya sincronizado** (tiene folio y no pendiente). **Nomenclatura:** lo que se muestra sin folio **no** se llama "acta oficial". Usar en la UI un nombre explícito: **"Resumen de cierre pendiente"** (o alternativamente "Acta preliminar"). La vista/contenido sin folio debe etiquetarse siempre con uno de estos nombres; "acta" con folio queda para el documento oficial tras sincronizar.
 
 ### Archivos a editar
 
@@ -267,15 +267,18 @@ Ejemplo mínimo de generación con PDFKit:
 **3. `backend/src/routes/partidos.ts`**
 
 - En POST cerrar: leer header `X-Client-Closure-Id`. Si existe y ya hay `prisma.cierrePartido.findUnique({ where: { clientClosureId } })`, devolver 200 con partido y folio (idempotente). Tras cerrar, crear `CierrePartido` con partidoId y clientClosureId.
+- **Regla nueva (empates):** si el marcador final es **empate**, el backend debe responder 400: **no se permite cerrar**. Se debe registrar tiempo extra hasta que haya ganador.
 
 **4. `frontend/src/lib/db.ts`**
 
 - PartidoLocal con `closurePending?: boolean`.
 - Tablas Dexie version 2: `fotosCierre: 'partidoId'`, `cierresPendientes: 'id, partidoId'`. Tipos `FotoCierre { partidoId: string; blob: Blob }` y `CierrePendiente { id: string; partidoId: string; clientClosureId: string; createdAt: string }`.
+  - **Nota:** la foto es opcional. Si no hay foto, `fotosCierre` no tendrá registro para ese partido y el sync debe cerrar enviando el formulario sin archivo.
 
 **5. `frontend/src/store/syncStore.ts`**
 
 - En runSync, después de incidencias: procesar `db.cierresPendientes` (foto + X-Client-Closure-Id, POST cerrar). Al 200: actualizar partido en Dexie con partido devuelto, **closurePending: false**, synced true; borrar de fotosCierre y cierresPendientes.
+  - Si no hay foto en `fotosCierre`, igual se debe intentar cerrar (con FormData vacío).
 - Opcional: en updateCounts contar cierres pendientes para UI.
 
 **6. `frontend/src/pages/Resumen.tsx`**
@@ -283,6 +286,7 @@ Ejemplo mínimo de generación con PDFKit:
 - Al "Cerrar localmente" (sin red): guardar en fotosCierre y cierresPendientes; actualizar partido en Dexie con `estado: 'finalizado', cerradoAt: ..., folio: null, closurePending: true`. **No** navegar a una pantalla titulada "Acta"; mostrar mensaje: **"Resumen de cierre pendiente. Conecta a internet y pulsa Sincronizar para obtener el folio y el acta oficial."** Opcional: botón "Ir a inicio" o **"Ver resumen de cierre pendiente"** (o "Ver acta preliminar") que muestre el mismo contenido de resumen pero con título/encabezado **"Resumen de cierre pendiente"** o **"Acta preliminar"**, nunca "Acta" a secas.
 - Si el partido tiene `closurePending === true`: banner **"Pendiente de sincronizar"** con el texto anterior. En ningún caso usar "Acta oficial" ni "Acta" para el contenido sin folio.
 - Con red: flujo actual (POST cerrar); no usar closurePending.
+- Con red: cerrar con o sin foto.
 
 **7. `frontend/src/pages/PartidosList.tsx`**
 
@@ -308,13 +312,14 @@ Ejemplo mínimo de generación con PDFKit:
 
 **Objetivo:** Añadir un cronómetro operativo dentro de la pantalla de captura que permita llevar **4 cuartos de 10 minutos**, con **inicio/pausa/reanudación**, **edición manual del tiempo**, **cambio manual de cuarto** y **persistencia local**. Cada evento debe guardar de forma consistente: `cuarto`, `segundosRestantesCuarto` y `tiempoPartidoSegundos` (segundos jugados acumulados desde el inicio del partido), de acuerdo con la fórmula definida y el crono visible. El cronómetro es una **herramienta práctica para captura**, no un cronómetro oficial de arbitraje.
 
-**Nota de alcance (MVP):** En este bloque, los campos de cronómetro de cada evento (`cuarto`, `segundosRestantesCuarto`, `tiempoPartidoSegundos`) viven solo en el **frontend / almacenamiento local (IndexedDB)**. El backend **no se modifica todavía** para persistirlos; se podrá extender el modelo y los endpoints en una fase posterior si se decide conservar estos datos también en servidor.
+**Nota de alcance (MVP):** En este bloque, los campos de cronómetro de cada evento (`cuarto`, `segundosRestantesCuarto`, `tiempoPartidoSegundos`) viven solo en el **frontend / almacenamiento local (IndexedDB)**. El backend **no se modifica** para persistirlos; se podrá extender el modelo y los endpoints en una fase posterior si se decide conservar estos datos también en servidor.
 
 ### Política UX MVP
 
-- **Cronómetro por cuarto hacia atrás**
-  - Cada cuarto se juega de 10:00 → 0:00.
-  - Hay 4 cuartos; sin overtime en este bloque.
+- **Cronómetro por periodos hacia atrás**
+  - Q1–Q4 se juegan de 10:00 → 0:00.
+  - Si al terminar Q4 hay empate, se generan **tiempos extra**: OT1, OT2… de **5:00 → 0:00** hasta que haya ganador.
+  - Regla de cierre: **no se puede cerrar** un partido con empate.
 - **Cambio de cuarto manual (solo en pausa)**
   - El usuario elige manualmente el cuarto actual (Q1–Q4).
   - Si el crono está corriendo y se intenta cambiar de cuarto:
@@ -359,8 +364,8 @@ Ejemplo mínimo de generación con PDFKit:
 
 **Estado nuevo del crono** en el store del partido actual:
 
-- `cuartoActual: number` (1–4; valor por defecto 1 cuando no exista).
-- `segundosRestantesCuarto: number` (0–600; por defecto 600 = 10×60 al iniciar Q1).
+- `cuartoActual: number` (>=1; Q1–Q4 y luego OT1=5, OT2=6…).
+- `segundosRestantesCuarto: number` (0–600 en Q1–Q4; 0–300 en OT).
 - `cronoRunning: boolean` (por defecto `false`).
 - `lastTickAt: string | null` (ISO).
 
@@ -459,8 +464,10 @@ Aclara en el código que `lastTickAt` se guarda para poder calcular correctament
 
 ```ts
 tiempoPartidoSegundos =
-  (cuartoActual - 1) * 600 +
-  (600 - segundosRestantesCuarto);
+  suma(duración(periodo i), i=1..cuartoActual-1) +
+  (duración(cuartoActual) - segundosRestantesCuarto);
+
+duración(Q1..Q4)=600; duración(OT)=300.
 ```
 
   - `tiempoPartidoSegundos` debe ser **consistente con el crono visible y con esta fórmula**. Si el tiempo se corrige manualmente, tanto el tiempo visible como `tiempoPartidoSegundos` se recalculan coherentemente a partir del nuevo estado; pueden cambiar respecto a valores anteriores, pero siempre deben reflejar el estado del crono en el momento de registrar cada evento.

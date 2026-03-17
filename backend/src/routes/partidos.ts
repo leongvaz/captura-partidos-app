@@ -1,14 +1,38 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import fs from 'fs/promises';
 import path from 'path';
+import PDFDocument from 'pdfkit';
 import { prisma } from '../lib/prisma.js';
 import { requireRole } from '../lib/auth.js';
+import type { AuthRequest } from '../lib/auth.js';
 import { ROLES_LECTURA_ROSTER, ROLES_PARTIDO } from '../lib/rbac.js';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 
 const preRead = [requireRole(...ROLES_LECTURA_ROSTER)];
 const preWrite = [requireRole(...ROLES_PARTIDO)];
+
+/** Para cerrar partido: carga la liga del partido y los roles del usuario desde BD (evita 403 por token con roles vacíos) */
+async function ensurePartidoLigaAndRoles(request: FastifyRequest, reply: FastifyReply) {
+  const req = request as AuthRequest;
+  if (req.isSuperAdmin) return;
+  const partidoId = (request.params as { id: string }).id;
+  if (!partidoId) return;
+  const partido = await prisma.partido.findUnique({ where: { id: partidoId }, select: { ligaId: true } });
+  if (!partido) {
+    await reply.status(404).send({ code: 'NOT_FOUND', message: 'Partido no encontrado' });
+    return;
+  }
+  const membresia = await prisma.membresiaLiga.findFirst({
+    where: { ligaId: partido.ligaId, usuarioId: req.usuarioId, activo: true },
+  });
+  if (!membresia) {
+    await reply.status(403).send({ code: 'FORBIDDEN', message: 'No tienes membresía en esta liga' });
+    return;
+  }
+  req.ligaId = partido.ligaId;
+  req.roles = [membresia.rol];
+}
 
 function partidoToJson(p: {
   id: string;
@@ -22,6 +46,8 @@ function partidoToJson(p: {
   estado: string;
   folio: string | null;
   anotadorId: string;
+  marcadorLocalFinal?: number | null;
+  marcadorVisitanteFinal?: number | null;
   fotoMarcadorUrl: string | null;
   fotosOpcionales: string | null;
   cerradoAt: Date | null;
@@ -43,6 +69,8 @@ function partidoToJson(p: {
     estado: p.estado,
     folio: p.folio,
     anotadorId: p.anotadorId,
+    marcadorLocalFinal: p.marcadorLocalFinal ?? null,
+    marcadorVisitanteFinal: p.marcadorVisitanteFinal ?? null,
     fotoMarcadorUrl: p.fotoMarcadorUrl,
     fotosOpcionales: p.fotosOpcionales ? JSON.parse(p.fotosOpcionales) : [],
     cerradoAt: p.cerradoAt?.toISOString() ?? null,
@@ -65,6 +93,12 @@ async function generateFolio(ligaId: string): Promise<string> {
   });
   const seq = String(count + 1).padStart(5, '0');
   return `CPT-${year}-${seq}`;
+}
+
+/** Solo el anotador del partido o admin_liga/superadmin pueden editar el partido */
+function canEditPartido(partido: { anotadorId: string }, req: { usuarioId: string; isSuperAdmin?: boolean; roles?: string[] }) {
+  if (req.isSuperAdmin || (req.roles && req.roles.includes('admin_liga'))) return true;
+  return partido.anotadorId === req.usuarioId;
 }
 
 export async function partidosRoutes(app: FastifyInstance) {
@@ -148,6 +182,8 @@ export async function partidosRoutes(app: FastifyInstance) {
     if (!partido) return reply.status(404).send({ code: 'NOT_FOUND', message: 'Partido no encontrado' });
     const ligaId = (request as { ligaId: string }).ligaId;
     if (partido.ligaId !== ligaId) return reply.status(403).send({ code: 'FORBIDDEN', message: 'No autorizado' });
+    const req = request as { usuarioId: string; isSuperAdmin?: boolean; roles?: string[] };
+    if (!canEditPartido(partido, req)) return reply.status(403).send({ code: 'FORBIDDEN', message: 'Solo el anotador del partido puede modificarlo' });
     if (partido.estado === 'finalizado') return reply.status(400).send({ code: 'VALIDATION', message: 'Partido ya cerrado' });
     const data: { estado?: string; fotoMarcadorUrl?: string } = {};
     if (request.body?.estado) data.estado = request.body.estado as any;
@@ -227,6 +263,8 @@ export async function partidosRoutes(app: FastifyInstance) {
     if (!partido) return reply.status(404).send({ code: 'NOT_FOUND', message: 'Partido no encontrado' });
     const ligaId = (request as { ligaId: string }).ligaId;
     if (partido.ligaId !== ligaId) return reply.status(403).send({ code: 'FORBIDDEN', message: 'No autorizado' });
+    const req = request as { usuarioId: string; isSuperAdmin?: boolean; roles?: string[] };
+    if (!canEditPartido(partido, req)) return reply.status(403).send({ code: 'FORBIDDEN', message: 'Solo el anotador del partido puede configurar la plantilla' });
     const items = request.body?.items || [];
     const localCount = items.filter((i) => i.equipoId === partido.localEquipoId && i.enCanchaInicial).length;
     const visitanteCount = items.filter((i) => i.equipoId === partido.visitanteEquipoId && i.enCanchaInicial).length;
@@ -305,31 +343,40 @@ export async function partidosRoutes(app: FastifyInstance) {
     if (partido.estado === 'finalizado') return reply.status(400).send({ code: 'VALIDATION', message: 'Partido ya cerrado' });
     const ligaId = (request as { ligaId: string }).ligaId;
     if (partido.ligaId !== ligaId) return reply.status(403).send({ code: 'FORBIDDEN', message: 'No autorizado' });
+    const req = request as { usuarioId: string; isSuperAdmin?: boolean; roles?: string[] };
+    if (!canEditPartido(partido, req)) return reply.status(403).send({ code: 'FORBIDDEN', message: 'Solo el anotador del partido puede registrar eventos' });
+
     let eventos = request.body?.eventos;
     if (Array.isArray(request.body) && !eventos) eventos = request.body as any;
     if (!Array.isArray(eventos)) eventos = [];
-    const sorted = [...eventos].sort((a, b) => a.orden - b.orden);
+    const sorted = [...eventos].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
     let recibidos = 0;
     for (const ev of sorted) {
+      if (!ev?.id || !ev?.tipo || !ev?.jugadorId) continue;
       const existing = await prisma.evento.findUnique({ where: { id: ev.id } });
       if (existing) {
         recibidos++;
         continue;
       }
-      await prisma.evento.create({
-        data: {
-          id: ev.id,
-          partidoId,
-          tipo: ev.tipo as any,
-          jugadorId: ev.jugadorId,
-          jugadorEntraId: ev.jugadorEntraId || null,
-          minutoPartido: ev.minutoPartido,
-          cuarto: ev.cuarto,
-          orden: ev.orden,
-          serverReceivedAt: new Date(),
-        },
-      });
-      recibidos++;
+      try {
+        await prisma.evento.create({
+          data: {
+            id: ev.id,
+            partidoId,
+            tipo: String(ev.tipo),
+            jugadorId: ev.jugadorId,
+            jugadorEntraId: ev.jugadorEntraId || null,
+            minutoPartido: Number(ev.minutoPartido) || 0,
+            cuarto: Number(ev.cuarto) || 1,
+            orden: Number(ev.orden) || 0,
+            serverReceivedAt: new Date(),
+          },
+        });
+        recibidos++;
+      } catch (err) {
+        console.warn('Evento create error', ev.id, err);
+        return reply.status(400).send({ code: 'VALIDATION', message: 'Error al guardar evento', detail: String((err as Error).message) });
+      }
     }
     const list = await prisma.evento.findMany({ where: { partidoId }, orderBy: { orden: 'asc' } });
     return reply.send({
@@ -371,7 +418,7 @@ export async function partidosRoutes(app: FastifyInstance) {
 
   app.post<{
     Params: { id: string };
-    Body: { tipo: string; equipoId?: string; jugadorId?: string; motivo?: string };
+    Body: { id?: string; tipo: string; equipoId?: string; jugadorId?: string; motivo?: string };
   }>('/partidos/:id/incidencias', { preHandler: [app.authenticate, ...preWrite] }, async (request, reply) => {
     const partidoId = request.params.id;
     const partido = await prisma.partido.findUnique({ where: { id: partidoId } });
@@ -380,8 +427,26 @@ export async function partidosRoutes(app: FastifyInstance) {
     if (partido.ligaId !== ligaId) return reply.status(403).send({ code: 'FORBIDDEN', message: 'No autorizado' });
     const body = request.body;
     if (!body?.tipo) return reply.status(400).send({ code: 'VALIDATION', message: 'tipo es requerido' });
+
+    if (body.id) {
+      const existente = await prisma.incidencia.findUnique({ where: { id: body.id } });
+      if (existente) {
+        return reply.status(200).send({
+          id: existente.id,
+          partidoId: existente.partidoId,
+          tipo: existente.tipo,
+          equipoId: existente.equipoId,
+          jugadorId: existente.jugadorId,
+          motivo: existente.motivo,
+          createdAt: existente.createdAt.toISOString(),
+          updatedAt: existente.updatedAt.toISOString(),
+        });
+      }
+    }
+
     const incidencia = await prisma.incidencia.create({
       data: {
+        ...(body.id && { id: body.id }),
         partidoId,
         tipo: body.tipo as any,
         equipoId: body.equipoId || null,
@@ -401,16 +466,35 @@ export async function partidosRoutes(app: FastifyInstance) {
     });
   });
 
-  app.post<{ Params: { id: string } }>('/partidos/:id/cerrar', { preHandler: [app.authenticate, ...preWrite] }, async (request, reply) => {
+  app.post<{ Params: { id: string } }>('/partidos/:id/cerrar', { preHandler: [app.authenticate, ensurePartidoLigaAndRoles, ...preWrite] }, async (request, reply) => {
     const partidoId = request.params.id;
-    const partido = await prisma.partido.findUnique({ where: { id: partidoId } });
+    const clientClosureId = (request.headers['x-client-closure-id'] as string) || undefined;
+    if (clientClosureId) {
+      const cierreExistente = await prisma.cierrePartido.findUnique({ where: { clientClosureId }, include: { partido: true } });
+      if (cierreExistente && cierreExistente.partidoId === partidoId) {
+        const p = cierreExistente.partido;
+        return reply.status(200).send({ partido: partidoToJson(p), folio: p.folio ?? '' });
+      }
+    }
+
+    const partido = await prisma.partido.findUnique({
+      where: { id: partidoId },
+      include: { plantilla: true, eventos: { orderBy: { orden: 'asc' } } },
+    });
     if (!partido) return reply.status(404).send({ code: 'NOT_FOUND', message: 'Partido no encontrado' });
     if (partido.estado === 'finalizado') return reply.status(400).send({ code: 'VALIDATION', message: 'Partido ya cerrado' });
     const ligaId = (request as { ligaId: string }).ligaId;
     if (partido.ligaId !== ligaId) return reply.status(403).send({ code: 'FORBIDDEN', message: 'No autorizado' });
+    const req = request as { usuarioId: string; isSuperAdmin?: boolean; roles?: string[] };
+    if (!canEditPartido(partido, req)) return reply.status(403).send({ code: 'FORBIDDEN', message: 'Solo el anotador del partido puede cerrar el partido' });
 
     let fotoMarcadorUrl: string | null = null;
-    const data = await request.file();
+    let data: Awaited<ReturnType<typeof request.file>> | null = null;
+    try {
+      data = await request.file();
+    } catch {
+      data = null;
+    }
     if (data) {
       await ensureUploadDir();
       const ext = path.extname(data.filename) || '.jpg';
@@ -422,18 +506,54 @@ export async function partidosRoutes(app: FastifyInstance) {
     }
     const body = request.body as { fotoMarcadorUrl?: string } | undefined;
     if (!fotoMarcadorUrl && body?.fotoMarcadorUrl) fotoMarcadorUrl = body.fotoMarcadorUrl;
-    if (!fotoMarcadorUrl) return reply.status(400).send({ code: 'VALIDATION', message: 'Foto del marcador es obligatoria' });
+
+    const puntosPorJugador: Record<string, number> = {};
+    for (const e of partido.eventos) {
+      if (!puntosPorJugador[e.jugadorId]) puntosPorJugador[e.jugadorId] = 0;
+      if (e.tipo === 'punto_2') puntosPorJugador[e.jugadorId] += 2;
+      else if (e.tipo === 'punto_3') puntosPorJugador[e.jugadorId] += 3;
+      else if (e.tipo === 'tiro_libre_anotado') puntosPorJugador[e.jugadorId] += 1;
+    }
+    const marcadorLocalFinal = partido.plantilla
+      .filter((p) => p.equipoId === partido.localEquipoId)
+      .reduce((s, p) => s + (puntosPorJugador[p.jugadorId] || 0), 0);
+    const marcadorVisitanteFinal = partido.plantilla
+      .filter((p) => p.equipoId === partido.visitanteEquipoId)
+      .reduce((s, p) => s + (puntosPorJugador[p.jugadorId] || 0), 0);
+
+    if (marcadorLocalFinal === marcadorVisitanteFinal) {
+      return reply.status(400).send({
+        code: 'VALIDATION',
+        message: 'No se puede cerrar el partido con empate. Registra tiempo extra hasta que haya ganador.',
+      });
+    }
 
     const folio = await generateFolio(partido.ligaId);
+    const updateData: {
+      estado: string;
+      folio: string;
+      fotoMarcadorUrl: string | null;
+      cerradoAt: Date;
+      marcadorLocalFinal?: number;
+      marcadorVisitanteFinal?: number;
+    } = {
+      estado: 'finalizado',
+      folio,
+      fotoMarcadorUrl,
+      cerradoAt: new Date(),
+    };
+    updateData.marcadorLocalFinal = Number(marcadorLocalFinal);
+    updateData.marcadorVisitanteFinal = Number(marcadorVisitanteFinal);
+
     const updated = await prisma.partido.update({
       where: { id: partidoId },
-      data: {
-        estado: 'finalizado',
-        folio,
-        fotoMarcadorUrl,
-        cerradoAt: new Date(),
-      },
+      data: updateData,
     });
+    if (clientClosureId) {
+      await prisma.cierrePartido.create({
+        data: { partidoId, clientClosureId },
+      });
+    }
     return reply.send({ partido: partidoToJson(updated), folio });
   });
 
@@ -453,6 +573,7 @@ export async function partidosRoutes(app: FastifyInstance) {
     const ligaId = (request as { ligaId: string }).ligaId;
     if (partido.ligaId !== ligaId) return reply.status(403).send({ code: 'FORBIDDEN', message: 'No autorizado' });
 
+    const FALTA_TIPOS_ACTA = ['falta_personal', 'falta_tecnica', 'falta_antideportiva'];
     const puntosPorJugador: Record<string, number> = {};
     const faltasPorJugador: Record<string, number> = {};
     for (const e of partido.eventos) {
@@ -461,7 +582,10 @@ export async function partidosRoutes(app: FastifyInstance) {
       if (e.tipo === 'punto_2') puntosPorJugador[e.jugadorId] += 2;
       else if (e.tipo === 'punto_3') puntosPorJugador[e.jugadorId] += 3;
       else if (e.tipo === 'tiro_libre_anotado') puntosPorJugador[e.jugadorId] += 1;
-      else if (e.tipo === 'falta_personal' || e.tipo === 'falta_antideportiva' || e.tipo === 'falta_tecnica') faltasPorJugador[e.jugadorId]++;
+      else if (FALTA_TIPOS_ACTA.includes(e.tipo)) faltasPorJugador[e.jugadorId]++;
+    }
+    for (const jid of Object.keys(faltasPorJugador)) {
+      faltasPorJugador[jid] = Math.min(5, faltasPorJugador[jid]);
     }
     const localTotal = Object.entries(puntosPorJugador).filter(([jid]) =>
       partido.plantilla.some((p) => p.equipoId === partido.localEquipoId && p.jugadorId === jid)
@@ -484,5 +608,93 @@ export async function partidosRoutes(app: FastifyInstance) {
       incidencias: partido.incidencias,
     };
     return reply.send(acta);
+  });
+
+  app.get<{ Params: { id: string } }>('/partidos/:id/acta/pdf', { preHandler: [app.authenticate, ...preRead] }, async (request, reply) => {
+    const partido = await prisma.partido.findUnique({
+      where: { id: request.params.id },
+      include: {
+        localEquipo: true,
+        visitanteEquipo: true,
+        cancha: true,
+        plantilla: { include: { jugador: true } },
+        eventos: { orderBy: { orden: 'asc' } },
+        incidencias: true,
+      },
+    });
+    if (!partido) return reply.status(404).send({ code: 'NOT_FOUND', message: 'Partido no encontrado' });
+    const ligaId = (request as { ligaId: string }).ligaId;
+    if (partido.ligaId !== ligaId) return reply.status(403).send({ code: 'FORBIDDEN', message: 'No autorizado' });
+
+    const FALTA_TIPOS_ACTA = ['falta_personal', 'falta_tecnica', 'falta_antideportiva'];
+    const puntosPorJugador: Record<string, number> = {};
+    const faltasPorJugador: Record<string, number> = {};
+    for (const e of partido.eventos) {
+      if (!puntosPorJugador[e.jugadorId]) puntosPorJugador[e.jugadorId] = 0;
+      if (!faltasPorJugador[e.jugadorId]) faltasPorJugador[e.jugadorId] = 0;
+      if (e.tipo === 'punto_2') puntosPorJugador[e.jugadorId] += 2;
+      else if (e.tipo === 'punto_3') puntosPorJugador[e.jugadorId] += 3;
+      else if (e.tipo === 'tiro_libre_anotado') puntosPorJugador[e.jugadorId] += 1;
+      else if (FALTA_TIPOS_ACTA.includes(e.tipo)) faltasPorJugador[e.jugadorId]++;
+    }
+    for (const jid of Object.keys(faltasPorJugador)) {
+      faltasPorJugador[jid] = Math.min(5, faltasPorJugador[jid]);
+    }
+    let localTotal = Object.entries(puntosPorJugador).filter(([jid]) =>
+      partido.plantilla.some((p) => p.equipoId === partido.localEquipoId && p.jugadorId === jid)
+    ).reduce((s, [, v]) => s + v, 0);
+    let visitanteTotal = Object.entries(puntosPorJugador).filter(([jid]) =>
+      partido.plantilla.some((p) => p.equipoId === partido.visitanteEquipoId && p.jugadorId === jid)
+    ).reduce((s, [, v]) => s + v, 0);
+
+    if (partido.estado === 'default_local' || partido.estado === 'default_visitante') {
+      localTotal = partido.marcadorLocalFinal ?? (partido.estado === 'default_visitante' ? 20 : 0);
+      visitanteTotal = partido.marcadorVisitanteFinal ?? (partido.estado === 'default_local' ? 20 : 0);
+    }
+
+    const doc = new PDFDocument({ margin: 50 });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    doc.on('end', () => {
+      reply.header('Content-Type', 'application/pdf');
+      reply.header('Content-Disposition', `inline; filename="acta-${partido.folio || partido.id}.pdf"`);
+      reply.send(Buffer.concat(chunks));
+    });
+
+    doc.fontSize(18).text(`Acta ${partido.folio || partido.id}`, { align: 'center' });
+    doc.moveDown(0.5);
+    doc.fontSize(12).text(`${partido.localEquipo.nombre} ${localTotal} - ${visitanteTotal} ${partido.visitanteEquipo.nombre}`, { align: 'center' });
+    doc.moveDown(0.5);
+    doc.fontSize(10).text(`${partido.categoria} · ${partido.cancha.nombre} · ${partido.fecha} ${partido.horaInicio}`);
+    doc.moveDown(0.5);
+
+    if (partido.estado === 'default_local' || partido.estado === 'default_visitante') {
+      doc.text(`Partido ganado por default (no presentación). Ganador: ${partido.estado === 'default_visitante' ? partido.localEquipo.nombre : partido.visitanteEquipo.nombre}`);
+      doc.moveDown(0.5);
+    }
+
+    doc.text('Local — ' + partido.localEquipo.nombre);
+    doc.moveDown(0.3);
+    partido.plantilla.filter((p) => p.equipoId === partido.localEquipoId).forEach((p) => {
+      doc.fontSize(9).text(`  #${p.jugador.numero} ${p.jugador.nombre} ${p.jugador.apellido} — Pts: ${puntosPorJugador[p.jugadorId] || 0}, F: ${faltasPorJugador[p.jugadorId] || 0}`);
+    });
+    doc.moveDown(0.5);
+    doc.text('Visitante — ' + partido.visitanteEquipo.nombre);
+    doc.moveDown(0.3);
+    partido.plantilla.filter((p) => p.equipoId === partido.visitanteEquipoId).forEach((p) => {
+      doc.fontSize(9).text(`  #${p.jugador.numero} ${p.jugador.nombre} ${p.jugador.apellido} — Pts: ${puntosPorJugador[p.jugadorId] || 0}, F: ${faltasPorJugador[p.jugadorId] || 0}`);
+    });
+    doc.moveDown(0.5);
+
+    if (partido.incidencias.length > 0) {
+      doc.text('Incidencias:');
+      partido.incidencias.forEach((i) => {
+        doc.fontSize(9).text(`  ${i.tipo}${i.motivo ? ': ' + i.motivo : ''}`);
+      });
+      doc.moveDown(0.5);
+    }
+
+    doc.fontSize(8).text(`Folio: ${partido.folio || '-'}`, { align: 'center' });
+    doc.end();
   });
 }

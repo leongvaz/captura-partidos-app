@@ -1,7 +1,7 @@
 # Estado del proyecto — Captura Partidos
 
 Documento de referencia: **qué está listo** y **qué falta** según el PRD y los sprints MVP.  
-**Última actualización:** Febrero 2026.
+**Última actualización:** Marzo 2026.
 
 ---
 
@@ -58,14 +58,17 @@ Documento de referencia: **qué está listo** y **qué falta** según el PRD y l
 | GET/POST /partidos/:id/plantilla | ✅ | auth + lectura/escritura según rol |
 | GET/POST /partidos/:id/eventos | ✅ | auth + lectura/escritura según rol |
 | GET/POST /partidos/:id/incidencias | ✅ | auth + lectura/escritura según rol |
-| POST /partidos/:id/cerrar (multipart foto) | ✅ | auth + escritura partido |
+| POST /partidos/:id/registrar-default | ✅ | auth + escritura partido |
+| POST /partidos/:id/cerrar (foto opcional) | ✅ | auth + escritura partido |
 | GET /partidos/:id/acta | ✅ | auth + lectura |
+| GET /partidos/:id/acta/pdf | ✅ | auth + lectura |
+| GET /liga/panel | ✅ | auth + lectura |
+| GET /liga/equipos-estadisticas | ✅ | auth + lectura |
 
 ### 2.3 Pendiente en backend
 
 - CRUD equipos/jugadores (solo lectura hoy); necesario para Fase 2 y para que capturista_roster/admin_liga gestionen roster.
-- Endpoint(s) panel liga: partidos finalizados con filtro incidencias, historial por equipo (W-L, PF, PC).
-- Cierre offline: endpoint o flujo que acepte cierre con foto en cola para subir después (hoy el cierre requiere subir foto al momento).
+- Regla de cierre por empate: si el marcador final es empate, no permitir cerrar y forzar tiempos extra (ya aplicado).
 - Actualizar doc 07 con modelo RBAC (JWT con roles, MembresiaLiga, permisos por ruta).
 
 ---
@@ -92,9 +95,9 @@ Documento de referencia: **qué está listo** y **qué falta** según el PRD y l
 | Login | /login | ✅ | ligaId + PIN; redirección a / |
 | Partidos del día | / | ✅ | Lista por fecha; crear partido; enlace a config/captura/resumen/acta |
 | Configuración de mesa | /partido/:id/config | ✅ | 5 en cancha por equipo, coach, capitán; validación e iniciar partido |
-| Captura | /partido/:id/captura | ✅ | Local/Visitante, dorsales, +2/+3/TL/falta/sustitución, deshacer |
-| Resumen | /partido/:id/resumen | ✅ | Marcador, puntos/faltas por jugador, foto obligatoria, cerrar partido |
-| Acta | /partido/:id/acta | ✅ | Vista de acta con folio; **falta** exportar PDF y compartir |
+| Captura | /partido/:id/captura | ✅ | Local/Visitante, dorsales, +2/+3/TL, falta (Normal/Técnica/Antideportiva), expulsado no seleccionable + modal, deshacer |
+| Resumen | /partido/:id/resumen | ✅ | Marcador, puntos/faltas personales (F máx. 5), Ganador: [nombre equipo]; carga partido desde API si no en Dexie; Hooks en orden fijo (consulta puede abrir sin error) |
+| Acta | /partido/:id/acta | ✅ | Vista de acta con folio; default muestra ganador; F = solo personales (máx. 5); **falta** exportar PDF y compartir |
 
 ### 3.3 Sincronización
 
@@ -105,14 +108,15 @@ Documento de referencia: **qué está listo** y **qué falta** según el PRD y l
 | Estado: Sin conexión / N pendientes / Sincronizando / Sincronizado | ✅ |
 | Envío de partidos pendientes y luego eventos por partido | ✅ |
 | Cierre con foto: sync previo + POST cerrar con FormData | ✅ |
-| Cierre 100% offline (guardar foto en local y cerrar al tener red) | ❌ No implementado |
+| Cierre 100% offline (cola de cierres; foto opcional) | ✅ |
 
 ### 3.4 Pendiente en frontend
 
-- **Acta:** botón Exportar PDF y Compartir (Web Share API / WhatsApp).
-- **Captura:** alerta explícita para 5.ª falta (“debe salir”); alerta y registro de incidencia en expulsión (2 antideportivas / 2 técnicas).
-- **Partidos del día:** flujo "Registrar default" (modal/botón: equipo que no presenta 5 → estado default_local/default_visitante + incidencia).
-- **Panel liga / Historial:** vista con partidos finalizados, filtro por incidencias, y por equipo (partidos jugados, W-L, PF, PC).
+- **Acta:** ✅ exportar PDF y compartir (Web Share API con fallback).
+- **Captura:** ✅ Falta con 3 opciones (Normal, Técnica, Antideportiva). Jugador expulsado no seleccionable; modal; bloqueo +2/+3/TL y faltas. Incidencia al expulsar. (Antes: alerta explícita para 5.ª falta (“debe salir”); alerta y registro de incidencia en expulsión (2 antideportivas / 2 técnicas).
+- **Partidos del día:** flujo "Registrar default" ✅ (modal, elegir ganador, motivo; estado default_local/default_visitante + incidencia; lista y acta muestran "Ganador por default: Local/Visitante").
+- **Panel liga / Historial:** ✅ vista con partidos finalizados/default, filtro por incidencias, y por equipo (PJ, PG, PP, PF, PC, DIF).
+- **Editar / eliminar partidos:** no implementado; añadido al backlog (solo partidos en estado programado o en_curso; eliminar con confirmación).
 - **Ocultar/mostrar por rol:** deshabilitar o ocultar "Crear partido" y captura/cierre para rol solo **consulta** (usar `hasRole`).
 - **Selección de liga:** si el usuario tiene varias ligas, pantalla o selector de liga al iniciar (opcional para MVP).
 
@@ -135,7 +139,7 @@ Documento de referencia: **qué está listo** y **qué falta** según el PRD y l
 | U2.1 Listado partidos del día por liga y fecha | ✅ |
 | U2.2 Iniciar solo con 5 jugadores en cancha | ✅ |
 | U2.3 Coach y capitán (capitán en cancha) | ✅ |
-| U2.4 Registrar partido por default | ❌ Falta UI y flujo completo |
+| U2.4 Registrar partido por default | ✅ |
 
 ### Epic 3: Captura rápida
 
@@ -144,16 +148,16 @@ Documento de referencia: **qué está listo** y **qué falta** según el PRD y l
 | U3.1 Jugadores en cancha con dorsal, selección por tap | ✅ |
 | U3.2 +2, +3, TL, falta, sustitución | ✅ |
 | U3.3 Deshacer último evento | ✅ |
-| U3.4 Alertas 4 y 5 faltas | ⚠️ Parcial (alerta a partir de 4 faltas; falta mensaje específico 5.ª y bloqueo opcional) |
-| U3.5 Alerta expulsión (2 antideportivas/2 técnicas) e incidencia | ❌ Falta |
+| U3.4 Alertas 4 y 5 faltas | ✅ (alerta 4 y 5; jugador expulsado bloqueado para nuevos eventos; modal) |
+| U3.5 Alerta expulsión (2 antideportivas/2 técnicas) e incidencia | ✅ (3 tipos de falta; incidencia en Dexie al expulsar) |
 
 ### Epic 4: Cierre y acta
 
 | Historia / Tarea | Estado |
 |------------------|--------|
-| U4.1 Cierre con foto obligatoria del marcador | ✅ |
-| U4.2 Ver acta y exportar/compartir | ⚠️ Ver acta ✅; exportar PDF y compartir ❌ |
-| U4.3 Folio único y compartir | ⚠️ Folio visible ✅; compartir enlace/acta ❌ |
+| U4.1 Cierre (foto opcional) | ✅ |
+| U4.2 Ver acta y exportar/compartir | ✅ |
+| U4.3 Folio único y compartir | ✅ |
 
 ### Epic 5: Sincronización
 
@@ -168,15 +172,15 @@ Documento de referencia: **qué está listo** y **qué falta** según el PRD y l
 
 | Historia / Tarea | Estado |
 |------------------|--------|
-| U6.1 Listado partidos finalizados y filtro incidencias | ❌ Falta vista dedicada |
-| U6.2 Historial por equipo (W-L, PF, PC) | ❌ Falta |
+| U6.1 Listado partidos finalizados y filtro incidencias | ✅ |
+| U6.2 Historial por equipo (W-L, PF, PC) | ✅ |
 
 ### Sprint 3 — PWA y cierre offline
 
 | Tarea | Estado |
 |-------|--------|
 | 3.10 PWA instalable y offline básico | ✅ (manifest + Workbox) |
-| 3.3 Cierre offline (foto en local, subir al sincronizar) | ❌ Falta |
+| 3.3 Cierre offline (foto opcional en local, subir al sincronizar) | ✅ |
 
 ---
 
@@ -190,13 +194,16 @@ Documento de referencia: **qué está listo** y **qué falta** según el PRD y l
 
 ### Falta (MVP)
 
-1. **Registrar default:** UI y flujo para marcar partido perdido por no presentación.
-2. **Alertas completas:** 5.ª falta (“debe salir”) y expulsión (2 antideportivas/2 técnicas) con incidencia.
-3. **Acta:** exportar PDF y compartir (WhatsApp / Web Share).
-4. **Panel liga:** vista partidos finalizados, filtro incidencias, historial por equipo (W-L, PF, PC).
-5. **Cierre offline:** guardar foto en local y enviar al tener red sin perder cierre.
-6. **UX por rol:** ocultar/deshabilitar acciones para rol **consulta**.
-7. **Doc 07:** alinear con RBAC y nuevos endpoints/modelos.
+1. ~~**Registrar default**~~ ✅ Hecho.
+2. ~~**Alertas y tipos de falta**~~ ✅ Hecho (3 tipos; expulsado bloqueado + modal; incidencia). Antes: 5.ª falta (“debe salir”) y expulsión (2 antideportivas/2 técnicas) con incidencia.
+3. ~~**Acta:** exportar PDF y compartir (WhatsApp / Web Share).~~ ✅ Hecho.
+4. ~~**Panel liga:** vista partidos finalizados, filtro incidencias, historial por equipo (W-L, PF, PC).~~ ✅ Hecho.
+5. ~~**Cierre offline:** guardar foto en local y enviar al tener red sin perder cierre.~~ ✅ Hecho.
+6. **Empates:** tiempos extra (OT de 5 min) hasta romper empate antes de cerrar. ✅ Backend/Resumen/Cronómetro soportan OT.
+6. ~~**UX por rol**~~ ✅ Hecho (consulta sin crear/editar; botón atrás en header).
+7. ~~**Carga partido desde API**~~ ✅ Hecho (Captura/Resumen cargan desde API si no en Dexie).
+8. **Editar / eliminar partidos:** en backlog (solo programado/en_curso; con confirmación).
+9. **Doc 07:** alinear con RBAC y nuevos endpoints/modelos.
 
 ### No iniciado (Fase 2 y 3)
 
@@ -212,3 +219,5 @@ Documento de referencia: **qué está listo** y **qué falta** según el PRD y l
 ---
 
 *Para ejecutar el proyecto y migrar RBAC en DB existente, ver [DESARROLLO.md](../DESARROLLO.md) y [09-checklist-rbac.md](./09-checklist-rbac.md).*
+
+*Pendientes no contemplados en bloques actuales: ver [pendientes.md](../pendientes.md) en la raíz del proyecto.*

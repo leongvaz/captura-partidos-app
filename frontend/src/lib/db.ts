@@ -3,8 +3,28 @@ import type { Partido, PlantillaPartido, Evento, Incidencia, Liga, Equipo, Jugad
 
 export interface PartidoLocal extends Partido {
   synced?: boolean;
+  closurePending?: boolean;
+  cuartoActual?: number;
+  segundosRestantesCuarto?: number;
+  cronoRunning?: boolean;
+  lastTickAt?: string | null;
+}
+export interface FotoCierre {
+  partidoId: string;
+  blob: Blob;
+}
+export interface CierrePendiente {
+  id: string;
+  partidoId: string;
+  clientClosureId: string;
+  createdAt: string;
 }
 export interface EventoLocal extends Evento {
+  synced?: boolean;
+  segundosRestantesCuarto?: number;
+  tiempoPartidoSegundos?: number;
+}
+export interface IncidenciaLocal extends Incidencia {
   synced?: boolean;
 }
 
@@ -16,7 +36,9 @@ export class CapturaDB extends Dexie {
   partidos!: Table<PartidoLocal, string>;
   plantilla!: Table<PlantillaPartido, string>;
   eventos!: Table<EventoLocal, string>;
-  incidencias!: Table<Incidencia, string>;
+  incidencias!: Table<IncidenciaLocal, string>;
+  fotosCierre!: Table<FotoCierre, string>;
+  cierresPendientes!: Table<CierrePendiente, string>;
   session!: Table<{ key: string; value: unknown }, string>;
 
   constructor() {
@@ -30,6 +52,19 @@ export class CapturaDB extends Dexie {
       plantilla: 'id, partidoId, equipoId, jugadorId',
       eventos: 'id, partidoId, orden',
       incidencias: 'id, partidoId',
+      session: 'key',
+    });
+    this.version(2).stores({
+      ligas: 'id',
+      equipos: 'id, ligaId',
+      jugadores: 'id, equipoId',
+      canchas: 'id, ligaId',
+      partidos: 'id, ligaId, fecha, estado',
+      plantilla: 'id, partidoId, equipoId, jugadorId',
+      eventos: 'id, partidoId, orden',
+      incidencias: 'id, partidoId',
+      fotosCierre: 'partidoId',
+      cierresPendientes: 'id, partidoId',
       session: 'key',
     });
   }

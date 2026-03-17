@@ -29,29 +29,31 @@ Reglas de negocio que la app debe aplicar **siempre en cliente** (y el servidor 
 
 ---
 
-## 4.3 Faltas personales (máx. 5)
+## 4.3 Tipos de falta y faltas personales (máx. 5)
 
-- **Regla:** Máximo 5 faltas personales por jugador; al llegar a 5 el jugador debe salir y ser sustituido.
+- **Regla:** En captura se ofrecen **tres tipos de falta:** Normal (personal), Técnica, Antideportiva.
+- **Falta personal (normal):** Máximo 5 por jugador; al llegar a 5 el jugador debe salir y ser sustituido. No generan suspensión de partidos posteriores.
 - **Implementación:**
-  - Por cada evento `falta_personal` del jugador, el cliente cuenta las faltas personales de ese jugador en el partido (solo `falta_personal`; no antideportivas/técnicas para este límite, según FIBA).
-  - Cuando el conteo llega a **4**: mostrar alerta no intrusiva (toast/banner): "⚠ [Nombre] (#[dorsal]) tiene 4 faltas".
-  - Cuando el conteo llega a **5**: 
-    - Mostrar alerta: "🚫 [Nombre] (#[dorsal]) tiene 5 faltas – debe salir."
-    - Opcional: bloquear nuevos eventos para ese jugador (solo permitir "Sustitución - Sale") hasta que se registre la sustitución.
-  - El servidor recalcula faltas desde eventos y aplica la misma regla (no permitir 6ª falta personal para ese jugador).
+  - Por cada evento `falta_personal` del jugador, el cliente cuenta solo `falta_personal` (no antideportivas/técnicas para el límite de 5).
+  - Al llegar a **4** personales: alerta "⚠ [Nombre] (#[dorsal]) tiene 4 faltas".
+  - Al llegar a **5** personales: alerta "🚫 [Nombre] tiene 5 faltas – debe salir."; jugador considerado expulsado para ese partido (bloquear nuevos eventos salvo sustitución).
+  - En acta y resumen, la columna **F** muestra solo faltas personales, con máximo 5.
 
 ---
 
-## 4.4 Expulsión (2 antideportivas o 2 técnicas)
+## 4.4 Expulsión (2 antideportivas, 2 técnicas o 1+1) y suspensiones
 
-- **Regla:** Expulsión por 2 faltas antideportivas O 2 faltas técnicas.
+- **Regla:** Expulsión por: 2 faltas antideportivas, O 2 faltas técnicas, O 1 antideportiva + 1 técnica. También por 5 faltas personales (solo salida, sin suspensión).
+- **Suspensiones (para futuras referencias en BD):**
+  - 2 técnicas → expulsión + **1 partido de descanso**.
+  - 2 antideportivas → expulsión + **2 partidos de descanso**.
+  - 1 antideportiva + 1 técnica → expulsión + **1 partido de descanso**.
+  - 4 personales + 1 técnica o 1 antideportiva → expulsión, **sin** suspensión (solo sale de ese partido).
 - **Implementación:**
-  - Cliente mantiene conteo por jugador: `faltas_antideportivas`, `faltas_tecnicas`.
-  - Al registrar 2ª antideportiva o 2ª técnica:
-    - Mostrar alerta: "🚫 [Nombre] expulsado (2 [antideportivas|técnicas])."
-    - Registrar incidencia tipo `expulsion_antideportivas` o `expulsion_tecnicas` con `jugadorId`.
-    - El jugador debe salir (sustitución); opcionalmente bloquear más eventos para ese jugador en ese partido.
-  - Servidor: mismo conteo desde eventos; rechazar nuevo evento de falta antideportiva/técnica para ese jugador si ya está expulsado.
+  - Cliente mantiene conteo por jugador: `faltas_personales`, `faltas_antideportivas`, `faltas_tecnicas`.
+  - Jugador **expulsado** (5 personales, o 2 antideportivas, o 2 técnicas, o 1+1, o 4+1): no permitir nuevos eventos de puntos ni faltas para ese jugador; mostrar modal informativo; solo permitir "Sustitución - Sale".
+  - Al registrar la falta que provoca expulsión: crear incidencia `expulsion_antideportivas` o `expulsion_tecnicas` según corresponda (para 1+1 se usa expulsion_tecnicas / 1 partido).
+  - En BD se puede registrar tabla Sancion (jugadorId, partidosSuspendidos, motivo) para aplicar suspensiones en partidos futuros (Fase 2).
 
 ---
 

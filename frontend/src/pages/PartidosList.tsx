@@ -8,7 +8,10 @@ import type { PartidoLocal } from '@/lib/db';
 
 export default function PartidosList() {
   const ligaId = useAuthStore((s) => s.liga?.id);
+  const usuarioId = useAuthStore((s) => s.usuario?.id);
   const canWritePartido = useAuthStore((s) => s.hasRole(...ROLES_PARTIDO));
+  const isAdminLiga = useAuthStore((s) => s.hasRole('admin_liga'));
+  const canEditPartido = (p: Partido | PartidoLocal) => canWritePartido && (p.anotadorId === usuarioId || isAdminLiga);
   const [partidos, setPartidos] = useState<(Partido | PartidoLocal)[]>([]);
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [loading, setLoading] = useState(true);
@@ -151,7 +154,9 @@ export default function PartidosList() {
             <li key={p.id}>
               <Link
                 to={
-                  canWritePartido
+                  (p as PartidoLocal).closurePending
+                    ? `/partido/${p.id}/resumen`
+                    : canEditPartido(p)
                     ? p.estado === 'programado'
                       ? `/partido/${p.id}/config`
                       : p.estado === 'en_curso'
@@ -170,7 +175,7 @@ export default function PartidosList() {
                     {nombres[p.localEquipoId] ?? 'Local'} vs {nombres[p.visitanteEquipoId] ?? 'Visitante'}
                   </span>
                   <span className="flex items-center gap-2">
-                    {canWritePartido && p.estado === 'programado' && (
+                    {canEditPartido(p) && p.estado === 'programado' && (
                       <button
                         type="button"
                         onClick={(e) => abrirModalDefault(e, p)}
@@ -182,11 +187,24 @@ export default function PartidosList() {
                     <span className={`text-xs px-2 py-0.5 rounded ${p.estado === 'finalizado' ? 'bg-slate-600' : p.estado === 'default_local' || p.estado === 'default_visitante' ? 'bg-amber-800' : p.estado === 'en_curso' ? 'bg-emerald-700' : 'bg-slate-600'}`}>
                       {p.estado}
                     </span>
+                    {(p as PartidoLocal).closurePending && (
+                      <span className="text-xs px-2 py-0.5 rounded bg-amber-700 text-amber-100">Pendiente sync</span>
+                    )}
                   </span>
                 </div>
                 <div className="text-sm text-slate-400 mt-1">
                   {p.categoria} · {p.horaInicio} {p.folio && `· ${p.folio}`}
                 </div>
+                {(p.estado === 'default_local' || p.estado === 'default_visitante') && (
+                  <p className="text-sm font-medium text-amber-400 mt-1">
+                    Ganador: {p.estado === 'default_visitante' ? (nombres[p.localEquipoId] ?? 'Local') : (nombres[p.visitanteEquipoId] ?? 'Visitante')}
+                  </p>
+                )}
+                {p.estado === 'finalizado' && p.marcadorLocalFinal != null && p.marcadorVisitanteFinal != null && p.marcadorLocalFinal !== p.marcadorVisitanteFinal && (
+                  <p className="text-sm font-medium text-emerald-400 mt-1">
+                    Ganador: {(p.marcadorLocalFinal > p.marcadorVisitanteFinal ? nombres[p.localEquipoId] : nombres[p.visitanteEquipoId]) ?? (p.marcadorLocalFinal > p.marcadorVisitanteFinal ? 'Local' : 'Visitante')}
+                  </p>
+                )}
               </Link>
             </li>
           ))}

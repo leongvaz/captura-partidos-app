@@ -1,9 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { api } from '@/lib/api';
 
+const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
+
+async function fetchPdfBlob(partidoId: string): Promise<Blob> {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE}/partidos/${partidoId}/acta/pdf`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(res.statusText || 'Error al obtener el PDF');
+  return res.blob();
+}
+
 interface ActaData {
-  partido: { folio?: string; categoria: string; fecha: string; horaInicio: string };
+  partido: { folio?: string; categoria: string; fecha: string; horaInicio: string; estado?: string };
   local: { nombre: string; puntos: number; jugadores: Array<{ nombre: string; apellido: string; numero: number; puntos: number; faltas: number }> };
   visitante: { nombre: string; puntos: number; jugadores: Array<{ nombre: string; apellido: string; numero: number; puntos: number; faltas: number }> };
   cancha: string;
@@ -22,6 +33,8 @@ export default function Acta() {
   const [acta, setActa] = useState<ActaData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   useEffect(() => {
     if (!partidoId) return;
@@ -31,21 +44,102 @@ export default function Acta() {
       .finally(() => setLoading(false));
   }, [partidoId]);
 
+  const fotoUrl = acta?.fotoMarcadorUrl
+    ? (acta.fotoMarcadorUrl.startsWith('http') ? acta.fotoMarcadorUrl : API_BASE + acta.fotoMarcadorUrl)
+    : '';
+
+  const handleExportPdf = useCallback(async () => {
+    if (!partidoId) return;
+    setDownloading(true);
+    try {
+      const blob = await fetchPdfBlob(partidoId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `acta-${acta?.folio || partidoId}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+      alert('No se pudo descargar el PDF.');
+    } finally {
+      setDownloading(false);
+    }
+  }, [partidoId, acta?.folio]);
+
+  const handleShare = useCallback(async () => {
+    if (!partidoId) return;
+    setSharing(true);
+    try {
+      const blob = await fetchPdfBlob(partidoId);
+      const file = new File([blob], `acta-${acta?.folio || partidoId}.pdf`, { type: 'application/pdf' });
+
+      if (typeof navigator.share !== 'undefined' && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({
+          title: `Acta ${acta?.folio}`,
+          text: acta ? `Acta del partido ${acta.local.nombre} vs ${acta.visitante.nombre} - Folio ${acta.folio}` : `Acta ${acta?.folio}`,
+          files: [file],
+        });
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `acta-${acta?.folio || partidoId}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+        if (typeof navigator.share === 'undefined') {
+          alert('Descarga iniciada. En este navegador no está disponible compartir directamente.');
+        }
+      }
+    } catch (e) {
+      if ((e as Error)?.name === 'AbortError') return;
+      console.error(e);
+      alert('No se pudo compartir. Prueba con "Exportar PDF" para descargar.');
+    } finally {
+      setSharing(false);
+    }
+  }, [partidoId, acta]);
+
   if (loading) return <div className="p-4 text-slate-400">Cargando acta...</div>;
   if (error || !acta) return <div className="p-4 text-red-400">{error || 'No se pudo cargar el acta'}</div>;
-
-  const baseUrl = import.meta.env.VITE_API_URL || '';
-  const fotoUrl = acta.fotoMarcadorUrl?.startsWith('http') ? acta.fotoMarcadorUrl : baseUrl + acta.fotoMarcadorUrl;
 
   return (
     <div className="p-4 max-w-2xl mx-auto bg-slate-800 rounded-xl border border-slate-700">
       <h1 className="text-xl font-bold text-slate-100 text-center mb-4">Acta oficial</h1>
+      <div className="flex flex-wrap gap-2 justify-center mb-4">
+        <button
+          type="button"
+          onClick={handleExportPdf}
+          disabled={downloading || sharing}
+          className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-medium"
+        >
+          {downloading ? 'Descargando…' : 'Exportar PDF'}
+        </button>
+        <button
+          type="button"
+          onClick={handleShare}
+          disabled={downloading || sharing}
+          className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white font-medium"
+        >
+          {sharing ? 'Preparando…' : 'Compartir'}
+        </button>
+      </div>
       {folioParam && (
         <p className="text-center text-emerald-400 font-medium mb-2">Folio: {acta.folio || folioParam}</p>
       )}
       <div className="text-center text-2xl font-bold text-slate-100 mb-4">
         {acta.local.nombre} {acta.local.puntos} - {acta.visitante.puntos} {acta.visitante.nombre}
       </div>
+      {(acta.partido?.estado === 'default_local' || acta.partido?.estado === 'default_visitante') && (
+        <p className="text-center text-amber-400 font-medium mb-2">
+          Partido ganado por default (no presentación). Ganador: {acta.partido.estado === 'default_visitante' ? acta.local.nombre : acta.visitante.nombre}
+        </p>
+      )}
+      {(acta.partido?.estado === 'finalizado' && acta.local.puntos !== acta.visitante.puntos) && (
+        <p className="text-center text-slate-300 font-medium mb-2">
+          Ganador: {acta.local.puntos > acta.visitante.puntos ? acta.local.nombre : acta.visitante.nombre}
+        </p>
+      )}
       <p className="text-sm text-slate-400 mb-4">
         {acta.categoria} · {acta.cancha} · {acta.fecha} {acta.horaInicio}
       </p>

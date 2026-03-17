@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { db } from '@/lib/db';
 import { api } from '@/lib/api';
+import type { Partido } from '@/types/entities';
+type PartidoJson = Partido & { cerradoAt?: string | null };
 
 type SyncStatus = 'idle' | 'offline' | 'pending' | 'syncing' | 'synced';
 
@@ -56,6 +58,47 @@ export const useSyncStore = create<SyncState>((set, get) => ({
           for (const e of eventos) await db.eventos.update(e.id, { synced: true });
         } catch (e) {
           console.warn('Sync eventos', partidoId, e);
+        }
+      }
+      const incidenciasPendientes = await db.incidencias.filter((i) => !i.synced).toArray();
+      for (const inc of incidenciasPendientes) {
+        try {
+          const res = await api<{ id: string }>(`/partidos/${inc.partidoId}/incidencias`, {
+            method: 'POST',
+            body: {
+              id: inc.id,
+              tipo: inc.tipo,
+              equipoId: inc.equipoId ?? undefined,
+              jugadorId: inc.jugadorId ?? undefined,
+              motivo: inc.motivo ?? undefined,
+            },
+          });
+          if (res?.id) await db.incidencias.update(inc.id, { synced: true });
+        } catch (e) {
+          console.warn('Sync incidencia', inc.id, e);
+        }
+      }
+      const cierresPendientes = await db.cierresPendientes.toArray();
+      for (const c of cierresPendientes) {
+        try {
+          const foto = await db.fotosCierre.get(c.partidoId);
+          const form = new FormData();
+          if (foto?.blob) form.append('fotoMarcador', foto.blob, 'marcador.jpg');
+          const res = await api<{ partido: PartidoJson; folio: string }>(`/partidos/${c.partidoId}/cerrar`, {
+            method: 'POST',
+            body: form,
+            headers: { 'X-Client-Closure-Id': c.clientClosureId },
+          });
+          const partido = res.partido as PartidoJson;
+          await db.partidos.put({
+            ...partido,
+            synced: true,
+            closurePending: false,
+          });
+          await db.fotosCierre.delete(c.partidoId);
+          await db.cierresPendientes.delete(c.id);
+        } catch (e) {
+          console.warn('Sync cierre', c.partidoId, e);
         }
       }
       set({ status: 'synced', lastSyncedAt: new Date().toISOString() });

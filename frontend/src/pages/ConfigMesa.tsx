@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useAuthStore } from '@/store/authStore';
 import { db } from '@/lib/db';
 import { api } from '@/lib/api';
 import { usePartidoStore } from '@/store/partidoStore';
@@ -9,6 +10,8 @@ import type { Jugador, Equipo } from '@/types/entities';
 export default function ConfigMesa() {
   const { partidoId } = useParams<{ partidoId: string }>();
   const navigate = useNavigate();
+  const usuarioId = useAuthStore((s) => s.usuario?.id);
+  const isAdminLiga = useAuthStore((s) => s.hasRole('admin_liga'));
   const { partidoActual, plantilla, setPartidoActual, setPlantilla, loadPartido } = usePartidoStore();
   const [partido, setPartido] = useState(partidoActual);
   const [localJugadores, setLocalJugadores] = useState<Jugador[]>([]);
@@ -27,6 +30,10 @@ export default function ConfigMesa() {
       const p = await db.partidos.get(partidoId);
       if (!p) {
         navigate('/');
+        return;
+      }
+      if (p.anotadorId !== usuarioId && !isAdminLiga) {
+        navigate(`/partido/${partidoId}/resumen`);
         return;
       }
       setPartido(p);

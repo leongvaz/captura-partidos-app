@@ -86,6 +86,8 @@ export interface Partido {
   estado: EstadoPartido;
   folio?: string | null;
   anotadorId: string;
+  marcadorLocalFinal?: number | null;
+  marcadorVisitanteFinal?: number | null;
   fotoMarcadorUrl?: string | null;
   fotosOpcionales?: string[];
   cerradoAt?: string | null;

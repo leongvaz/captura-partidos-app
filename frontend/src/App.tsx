@@ -8,6 +8,7 @@ import ConfigMesa from '@/pages/ConfigMesa';
 import Captura from '@/pages/Captura';
 import Resumen from '@/pages/Resumen';
 import Acta from '@/pages/Acta';
+import PanelLiga from '@/pages/PanelLiga';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -59,6 +60,7 @@ export default function App() {
         />
         <Route path="partido/:partidoId/resumen" element={<Resumen />} />
         <Route path="partido/:partidoId/acta" element={<Acta />} />
+        <Route path="panel" element={<PanelLiga />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
