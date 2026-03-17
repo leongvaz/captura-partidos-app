@@ -1,0 +1,47 @@
+# Dependencias
+node_modules/
+
+# Builds / salidas
+dist/
+build/
+out/
+coverage/
+
+# Variables y secretos
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor / IDE
+.vscode/
+.cursor/
+.idea/
+
+# SO
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Java / Android
+.gradle/
+local.properties
+*.iml
+captures/
+
+# Archivos temporales
+tmp/
+temp/
+*.tmp
