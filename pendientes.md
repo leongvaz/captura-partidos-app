@@ -53,4 +53,12 @@ Elementos **no contemplados** en los bloques actuales del plan MVP (docs 08, 13)
 
 ---
 
-*Actualizado: Marzo 2026. Referencia: docs 10 (estado del proyecto), 11–13 (propuestas y plan).*
+---
+
+## Fase 2 — Ligas, inscripción y rol de juegos
+
+- Plan detallado en **[docs/16-plan-fase2-ligas-inscripcion-rol.md](docs/16-plan-fase2-ligas-inscripcion-rol.md)**: invitaciones (organizador, ayudantes, representantes), inscripción por link, config de liga (fechas, categorías, ramas, canchas con horarios), reglas de emparejamiento, torneo regular + eliminación (bracket por siembra), imagen/PDF del rol al estilo del front, descansos, asignación de anotadores, representante con 1+ equipos, página web misma funcionalidad que la app, equipos de prueba (nombres de referencia).
+
+---
+
+*Actualizado: Marzo 2026. Referencia: docs 10 (estado del proyecto), 11–13 (propuestas y plan), 16 (plan Fase 2).*

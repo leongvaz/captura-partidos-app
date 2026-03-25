@@ -97,7 +97,7 @@ Documento de referencia: **qué está listo** y **qué falta** según el PRD y l
 | Configuración de mesa | /partido/:id/config | ✅ | 5 en cancha por equipo, coach, capitán; validación e iniciar partido |
 | Captura | /partido/:id/captura | ✅ | Local/Visitante, dorsales, +2/+3/TL, falta (Normal/Técnica/Antideportiva), expulsado no seleccionable + modal, deshacer |
 | Resumen | /partido/:id/resumen | ✅ | Marcador, puntos/faltas personales (F máx. 5), Ganador: [nombre equipo]; carga partido desde API si no en Dexie; Hooks en orden fijo (consulta puede abrir sin error) |
-| Acta | /partido/:id/acta | ✅ | Vista de acta con folio; default muestra ganador; F = solo personales (máx. 5); **falta** exportar PDF y compartir |
+| Acta | /partido/:id/acta | ✅ | Vista de acta con folio; exportar PDF y compartir (Web Share API con fallback). |
 
 ### 3.3 Sincronización
 
@@ -114,6 +114,7 @@ Documento de referencia: **qué está listo** y **qué falta** según el PRD y l
 
 - **Acta:** ✅ exportar PDF y compartir (Web Share API con fallback).
 - **Captura:** ✅ Falta con 3 opciones (Normal, Técnica, Antideportiva). Jugador expulsado no seleccionable; modal; bloqueo +2/+3/TL y faltas. Incidencia al expulsar. (Antes: alerta explícita para 5.ª falta (“debe salir”); alerta y registro de incidencia en expulsión (2 antideportivas / 2 técnicas).
+- **Cronómetro:** ✅ Persistente (puede seguir corriendo tras recarga), tiempos extra OT (5 min) y alarmas sonoras a 10s y 0:00; auto-advance Q1→Q4 en pausa y OT→OT solo si sigue empate.
 - **Partidos del día:** flujo "Registrar default" ✅ (modal, elegir ganador, motivo; estado default_local/default_visitante + incidencia; lista y acta muestran "Ganador por default: Local/Visitante").
 - **Panel liga / Historial:** ✅ vista con partidos finalizados/default, filtro por incidencias, y por equipo (PJ, PG, PP, PF, PC, DIF).
 - **Editar / eliminar partidos:** no implementado; añadido al backlog (solo partidos en estado programado o en_curso; eliminar con confirmación).
@@ -200,10 +201,10 @@ Documento de referencia: **qué está listo** y **qué falta** según el PRD y l
 4. ~~**Panel liga:** vista partidos finalizados, filtro incidencias, historial por equipo (W-L, PF, PC).~~ ✅ Hecho.
 5. ~~**Cierre offline:** guardar foto en local y enviar al tener red sin perder cierre.~~ ✅ Hecho.
 6. **Empates:** tiempos extra (OT de 5 min) hasta romper empate antes de cerrar. ✅ Backend/Resumen/Cronómetro soportan OT.
-6. ~~**UX por rol**~~ ✅ Hecho (consulta sin crear/editar; botón atrás en header).
-7. ~~**Carga partido desde API**~~ ✅ Hecho (Captura/Resumen cargan desde API si no en Dexie).
-8. **Editar / eliminar partidos:** en backlog (solo programado/en_curso; con confirmación).
-9. **Doc 07:** alinear con RBAC y nuevos endpoints/modelos.
+7. ~~**UX por rol**~~ ✅ Hecho (consulta sin crear/editar; botón atrás en header).
+8. ~~**Carga partido desde API**~~ ✅ Hecho (Captura/Resumen cargan desde API si no en Dexie).
+9. **Editar / eliminar partidos:** en backlog (solo programado/en_curso; con confirmación).
+10. **Doc 07:** alinear con RBAC y nuevos endpoints/modelos.
 
 ### No iniciado (Fase 2 y 3)
 

@@ -327,6 +327,8 @@ export async function partidosRoutes(app: FastifyInstance) {
         minutoPartido: e.minutoPartido,
         cuarto: e.cuarto,
         orden: e.orden,
+        segundosRestantesCuarto: e.segundosRestantesCuarto ?? null,
+        tiempoPartidoSegundos: e.tiempoPartidoSegundos ?? null,
         createdAt: e.createdAt.toISOString(),
         serverReceivedAt: e.serverReceivedAt?.toISOString() ?? null,
       }))
@@ -335,7 +337,7 @@ export async function partidosRoutes(app: FastifyInstance) {
 
   app.post<{
     Params: { id: string };
-    Body: { eventos: Array<{ id: string; tipo: string; jugadorId: string; jugadorEntraId?: string; minutoPartido: number; cuarto: number; orden: number }> };
+    Body: { eventos: Array<{ id: string; tipo: string; jugadorId: string; jugadorEntraId?: string; minutoPartido: number; cuarto: number; orden: number; segundosRestantesCuarto?: number; tiempoPartidoSegundos?: number }> };
   }>('/partidos/:id/eventos', { preHandler: [app.authenticate, ...preWrite] }, async (request, reply) => {
     const partidoId = request.params.id;
     const partido = await prisma.partido.findUnique({ where: { id: partidoId } });
@@ -369,6 +371,8 @@ export async function partidosRoutes(app: FastifyInstance) {
             minutoPartido: Number(ev.minutoPartido) || 0,
             cuarto: Number(ev.cuarto) || 1,
             orden: Number(ev.orden) || 0,
+            segundosRestantesCuarto: ev.segundosRestantesCuarto != null ? Number(ev.segundosRestantesCuarto) : null,
+            tiempoPartidoSegundos: ev.tiempoPartidoSegundos != null ? Number(ev.tiempoPartidoSegundos) : null,
             serverReceivedAt: new Date(),
           },
         });
@@ -390,6 +394,8 @@ export async function partidosRoutes(app: FastifyInstance) {
         minutoPartido: e.minutoPartido,
         cuarto: e.cuarto,
         orden: e.orden,
+        segundosRestantesCuarto: e.segundosRestantesCuarto ?? null,
+        tiempoPartidoSegundos: e.tiempoPartidoSegundos ?? null,
         createdAt: e.createdAt.toISOString(),
         serverReceivedAt: e.serverReceivedAt?.toISOString() ?? null,
       })),
