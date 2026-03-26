@@ -267,7 +267,7 @@ export default function Captura() {
       >
         Deshacer último evento
       </button>
-      <div className="rounded-lg bg-slate-800/80 border border-slate-700 p-3 mb-4 text-xs text-slate-400 overflow-x-auto">
+      <div className="mt-auto rounded-lg bg-slate-800/80 border border-slate-700 p-3 mb-3 text-xs text-slate-400 overflow-x-auto">
         <p className="font-medium text-slate-300 mb-2">Vista rápida (en cancha)</p>
         <table className="w-full border-collapse text-left">
           <thead>
@@ -312,7 +312,7 @@ export default function Captura() {
       <button
         type="button"
         onClick={() => navigate(`/partido/${partidoId}/resumen`)}
-        className="mt-auto w-full py-3 rounded-lg bg-primary-600 text-white font-medium"
+        className="w-full py-3 rounded-lg bg-primary-600 text-white font-medium"
       >
         Ir a resumen / Cerrar partido
       </button>

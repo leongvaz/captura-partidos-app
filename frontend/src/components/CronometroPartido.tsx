@@ -1,6 +1,41 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePartidoStore } from '@/store/partidoStore';
 
+function Icon({ name, className }: { name: 'play-fill' | 'pause-fill' | 'gear-fill'; className?: string }) {
+  const common = {
+    xmlns: 'http://www.w3.org/2000/svg',
+    viewBox: '0 0 16 16',
+    fill: 'currentColor',
+    className,
+    'aria-hidden': true as const,
+    focusable: false as const,
+  };
+
+  if (name === 'play-fill') {
+    return (
+      <svg {...common}>
+        <path d="m11.596 8.697-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393" />
+      </svg>
+    );
+  }
+
+  if (name === 'pause-fill') {
+    return (
+      <svg {...common}>
+        <path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5" />
+        <path d="M10.5 3.5A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5" />
+      </svg>
+    );
+  }
+
+  // gear-fill
+  return (
+    <svg {...common}>
+      <path d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 0 1 .872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 0 1 2.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 0 1 2.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 0 1 .872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 0 1-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 0 1-2.105-.872zM8 10.93a2.929 2.929 0 1 1 0-5.86 2.929 2.929 0 0 1 0 5.858z" />
+    </svg>
+  );
+}
+
 function formatMMSS(segundos: number): string {
   const m = Math.floor(segundos / 60);
   const s = Math.floor(segundos % 60);
@@ -32,8 +67,7 @@ export default function CronometroPartido({ partidoId }: CronometroPartidoProps)
     editarTiempoManual,
   } = usePartidoStore();
 
-  const [showEditor, setShowEditor] = useState(false);
-  const [showPeriodos, setShowPeriodos] = useState(false);
+  const [showConfigPanel, setShowConfigPanel] = useState(false);
   const [editMin, setEditMin] = useState(0);
   const [editSeg, setEditSeg] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -152,17 +186,17 @@ export default function CronometroPartido({ partidoId }: CronometroPartidoProps)
     ensureAudio().catch(() => {});
   };
 
-  const handleEditar = () => {
+  const handleConfig = () => {
     pausarCronoSiCorriendo();
     setEditMin(Math.floor(segundosRestantesActual / 60));
     setEditSeg(Math.floor(segundosRestantesActual % 60));
-    setShowEditor(true);
+    setShowConfigPanel((v) => !v);
   };
 
   const handleGuardarTiempo = () => {
     editarTiempoManual(editMin, editSeg);
     persistirCronoEnPartidoLocal(partidoId).catch(() => {});
-    setShowEditor(false);
+    setShowConfigPanel(false);
   };
 
   const handleCambiarCuarto = (nuevo: number) => {
@@ -171,7 +205,7 @@ export default function CronometroPartido({ partidoId }: CronometroPartidoProps)
     }
     cambiarCuarto(nuevo);
     persistirCronoEnPartidoLocal(partidoId).catch(() => {});
-    setShowPeriodos(false);
+    setShowConfigPanel(false);
   };
 
   const handleAgregarOT = () => {
@@ -180,7 +214,7 @@ export default function CronometroPartido({ partidoId }: CronometroPartidoProps)
     }
     cambiarCuarto(Math.max(5, cuartoActual + 1));
     persistirCronoEnPartidoLocal(partidoId).catch(() => {});
-    setShowPeriodos(false);
+    setShowConfigPanel(false);
   };
 
   const periodos: number[] = [1, 2, 3, 4];
@@ -189,40 +223,41 @@ export default function CronometroPartido({ partidoId }: CronometroPartidoProps)
 
   return (
     <div className="rounded-xl bg-slate-800 border border-slate-700 p-3 mb-4">
-      <div className="text-center">
-        <div className="text-2xl font-mono font-bold text-slate-100">
-          {formatMMSS(segundosRestantesActual)}
+      <div className="flex items-center justify-center gap-4">
+        <div className="flex items-center gap-2">
+          <div className="text-[1.75rem] leading-none font-mono font-bold text-slate-100">
+            {formatMMSS(segundosRestantesActual)}
+          </div>
         </div>
-        <div className="text-sm text-slate-400 font-medium">{labelPeriodo(cuartoActual)}</div>
-      </div>
-
-      <div className="mt-3 flex items-center justify-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <div className="text-base text-slate-200 font-semibold">{labelPeriodo(cuartoActual)}</div>
+        </div>
         <button
           type="button"
           onClick={handlePlayPause}
-          className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white font-medium"
+          className="w-11 h-11 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 border border-slate-600 inline-flex items-center justify-center"
+          title={cronoRunning ? 'Pausar cronómetro' : 'Iniciar cronómetro'}
+          aria-label={cronoRunning ? 'Pausar cronómetro' : 'Iniciar cronómetro'}
+          aria-pressed={cronoRunning}
         >
-          {cronoRunning ? 'Pausa' : 'Play'}
+          <Icon name={cronoRunning ? 'pause-fill' : 'play-fill'} className="w-5 h-5" />
         </button>
         <button
           type="button"
-          onClick={handleEditar}
-          className="px-3 py-2 rounded-lg bg-slate-600 hover:bg-slate-500 text-slate-200 text-sm"
+          onClick={handleConfig}
+          className="w-11 h-11 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 border border-slate-600 inline-flex items-center justify-center"
+          title="Configurar tiempo y cuarto"
+          aria-label="Configurar tiempo y cuarto"
         >
-          Editar tiempo
-        </button>
-        <button
-          type="button"
-          onClick={() => { pausarCronoSiCorriendo(); setShowPeriodos((v) => !v); }}
-          className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium"
-          title="Seleccionar cuarto / tiempo extra"
-        >
-          Cuarto
+          <Icon name="gear-fill" className="w-5 h-5" />
         </button>
       </div>
 
-      {showPeriodos && (
+      {showConfigPanel && (
         <div className="mt-3 pt-3 border-t border-slate-600">
+          <div className="mb-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Cuarto
+          </div>
           <div className="flex flex-wrap gap-2 justify-center">
             {periodos.map((q) => (
               <button
@@ -243,34 +278,32 @@ export default function CronometroPartido({ partidoId }: CronometroPartidoProps)
               +OT
             </button>
           </div>
-        </div>
-      )}
-      {showEditor && (
-        <div className="mt-3 pt-3 border-t border-slate-600 flex items-center gap-2 flex-wrap">
-          <label className="text-slate-400 text-sm">Min</label>
-          <input
-            type="number"
-            min={0}
-            max={cuartoActual <= 4 ? 10 : 5}
-            value={editMin}
-            onChange={(e) => setEditMin(clamp(parseInt(e.target.value, 10) || 0, 0, cuartoActual <= 4 ? 10 : 5))}
-            className="w-14 rounded bg-slate-700 border border-slate-600 text-slate-100 px-2 py-1 text-sm"
-          />
-          <label className="text-slate-400 text-sm">Seg</label>
-          <input
-            type="number"
-            min={0}
-            max={59}
-            value={editSeg}
-            onChange={(e) => setEditSeg(clamp(parseInt(e.target.value, 10) || 0, 0, 59))}
-            className="w-14 rounded bg-slate-700 border border-slate-600 text-slate-100 px-2 py-1 text-sm"
-          />
-          <button type="button" onClick={handleGuardarTiempo} className="px-3 py-1 rounded bg-emerald-600 text-white text-sm">
-            Guardar
-          </button>
-          <button type="button" onClick={() => setShowEditor(false)} className="px-3 py-1 rounded bg-slate-600 text-slate-200 text-sm">
-            Cancelar
-          </button>
+          <div className="mt-3 flex items-center justify-center gap-2 flex-wrap">
+            <label className="text-slate-400 text-sm">Min</label>
+            <input
+              type="number"
+              min={0}
+              max={cuartoActual <= 4 ? 10 : 5}
+              value={editMin}
+              onChange={(e) => setEditMin(clamp(parseInt(e.target.value, 10) || 0, 0, cuartoActual <= 4 ? 10 : 5))}
+              className="w-14 rounded bg-slate-700 border border-slate-600 text-slate-100 px-2 py-1 text-sm"
+            />
+            <label className="text-slate-400 text-sm">Seg</label>
+            <input
+              type="number"
+              min={0}
+              max={59}
+              value={editSeg}
+              onChange={(e) => setEditSeg(clamp(parseInt(e.target.value, 10) || 0, 0, 59))}
+              className="w-14 rounded bg-slate-700 border border-slate-600 text-slate-100 px-2 py-1 text-sm"
+            />
+            <button type="button" onClick={handleGuardarTiempo} className="px-3 py-1 rounded bg-emerald-600 text-white text-sm">
+              Guardar tiempo
+            </button>
+            <button type="button" onClick={() => setShowConfigPanel(false)} className="px-3 py-1 rounded bg-slate-600 text-slate-200 text-sm">
+              Cerrar
+            </button>
+          </div>
         </div>
       )}
     </div>
