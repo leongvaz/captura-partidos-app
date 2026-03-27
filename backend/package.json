@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "build:render": "node ./node_modules/prisma/build/index.js generate && node ./node_modules/prisma/build/index.js db push",
+    "build:render": "node ./node_modules/prisma/build/index.js generate && node ./node_modules/prisma/build/index.js db push && node ./node_modules/tsx/dist/cli.mjs prisma/seed.ts",
     "start:render": "node ./node_modules/prisma/build/index.js generate && node ./node_modules/tsx/dist/cli.mjs src/index.ts",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
