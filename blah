@@ -8,9 +8,9 @@ out/
 coverage/
 
 # Variables y secretos
-.env
-.env.*
-!.env.example
+# .env
+# .env.*
+# !.env.example
 
 # Logs
 *.log
