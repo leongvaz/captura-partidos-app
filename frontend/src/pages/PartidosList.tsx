@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore, ROLES_PARTIDO } from '@/store/authStore';
 import { api } from '@/lib/api';
 import { db } from '@/lib/db';
@@ -8,9 +8,11 @@ import type { PartidoLocal } from '@/lib/db';
 
 export default function PartidosList() {
   const ligaId = useAuthStore((s) => s.liga?.id);
-  const usuarioId = useAuthStore((s) => s.usuario?.id);
+  const usuario = useAuthStore((s) => s.usuario);
+  const usuarioId = usuario?.id;
   const canWritePartido = useAuthStore((s) => s.hasRole(...ROLES_PARTIDO));
   const isAdminLiga = useAuthStore((s) => s.hasRole('admin_liga'));
+  const navigate = useNavigate();
   const canEditPartido = (p: Partido | PartidoLocal) => canWritePartido && (p.anotadorId === usuarioId || isAdminLiga);
   const [partidos, setPartidos] = useState<(Partido | PartidoLocal)[]>([]);
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
@@ -123,7 +125,7 @@ export default function PartidosList() {
 
   return (
     <div className="p-4 max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-2">
         <h2 className="text-xl font-bold text-slate-100">Partidos del día</h2>
         <input
           type="date"
@@ -132,7 +134,26 @@ export default function PartidosList() {
           className="rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
         />
       </div>
-      {canWritePartido && (
+      {isAdminLiga && ligaId !== 'superadmin' && (
+        <div className="flex flex-col sm:flex-row gap-2 mb-4">
+          <button
+            type="button"
+            onClick={() => navigate('/reglas-liga')}
+            className="rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 text-sm px-3 py-2 flex-1 text-center"
+          >
+            Modificar reglas de liga
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/invitaciones-equipos')}
+            className="rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 text-sm px-3 py-2 flex-1 text-center"
+          >
+            Invitación a equipos
+          </button>
+        </div>
+      )}
+      {/* Botón de crear partido oculto por ahora (se conserva la lógica) */}
+      {false && canWritePartido && (
         <button
           type="button"
           onClick={crearPartido}

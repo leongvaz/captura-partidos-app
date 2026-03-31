@@ -34,6 +34,14 @@ export default function Layout() {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {usuario?.isSuperAdmin && (
+            <Link
+              to="/superadmin"
+              className="text-sm text-amber-200 hover:text-white px-2 py-1 rounded border border-amber-300/40"
+            >
+              Superadmin
+            </Link>
+          )}
           <Link to="/panel" className="text-sm text-slate-300 hover:text-white px-2 py-1 rounded">
             Panel
           </Link>

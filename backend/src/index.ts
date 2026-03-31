@@ -4,6 +4,7 @@ import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import path from 'path';
 import { authRoutes } from './routes/auth.js';
+import { invitacionesRoutes } from './routes/invitaciones.js';
 import { ligasRoutes } from './routes/ligas.js';
 import { equiposRoutes } from './routes/equipos.js';
 import { jugadoresRoutes } from './routes/jugadores.js';
@@ -22,6 +23,7 @@ await app.register(fastifyStatic, { root: uploadDir, prefix: '/uploads' });
 app.decorate('authenticate', authMiddleware);
 
 app.register(authRoutes, { prefix: '/api/v1' });
+app.register(invitacionesRoutes, { prefix: '/api/v1' });
 app.register(ligasRoutes, { prefix: '/api/v1' });
 app.register(equiposRoutes, { prefix: '/api/v1' });
 app.register(jugadoresRoutes, { prefix: '/api/v1' });

@@ -1,9 +1,38 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
-import { requireRole, ensureMembership } from '../lib/auth.js';
+import { requireRole, ensureMembership, type AuthRequest } from '../lib/auth.js';
 import { ROLES_LECTURA_ROSTER } from '../lib/rbac.js';
 
 const ESTADOS_CERRADOS = ['finalizado', 'default_local', 'default_visitante'] as const;
+
+type ReglasLigaConfig = {
+  duracionCuartoMin: number;
+  partidosClasificacion: number;
+  tienePlayoffs: boolean;
+  temporadaInicio?: string | null;
+  ramas: {
+    varonil: boolean;
+    femenil: boolean;
+    mixta: boolean;
+    veteranos: boolean;
+    infantil: boolean;
+  };
+  fuerzas?: string[]; // legado: lista global
+  fuerzasPorRama: {
+    varonil: string[];
+    femenil: string[];
+    mixta: string[];
+    veteranos: string[];
+    infantil: string[];
+  };
+  maxJugadoresPorEquipo: number;
+  maxInvitadosPorPartido: number;
+  permitirInvitadosSinCurp: boolean;
+  periodoInscripcion?: {
+    inicio?: string | null;
+    fin?: string | null;
+  };
+};
 
 function getMarcadorPartido(
   partido: { marcadorLocalFinal: number | null; marcadorVisitanteFinal: number | null; estado: string },
@@ -34,6 +63,95 @@ function getMarcadorPartido(
 }
 
 export async function ligaRoutes(app: FastifyInstance) {
+  // Info pública de liga (nombre, temporada) por ID, sin autenticación
+  app.get<{ Querystring: { ligaId: string } }>('/liga/public-info', async (request, reply) => {
+    const { ligaId } = request.query;
+    if (!ligaId) {
+      return reply
+        .status(400)
+        .send({ code: 'VALIDATION', message: 'ligaId es requerido' });
+    }
+
+    const liga = await prisma.liga.findUnique({ where: { id: ligaId } });
+    if (!liga) {
+      return reply
+        .status(404)
+        .send({ code: 'NOT_FOUND', message: 'Liga no encontrada' });
+    }
+
+    return reply.send({
+      id: liga.id,
+      nombre: liga.nombre,
+      temporada: liga.temporada,
+      categorias: JSON.parse(liga.categorias || '[]'),
+    });
+  });
+
+  // Ligas para superadmin (gestión global)
+  app.get('/admin/ligas', { preHandler: [app.authenticate] }, async (request, reply) => {
+    const req = request as AuthRequest;
+    if (!req.isSuperAdmin) {
+      return reply
+        .status(403)
+        .send({ code: 'FORBIDDEN', message: 'Solo superadmin puede listar ligas' });
+    }
+
+    const ligas = await prisma.liga.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const list = ligas.map((l) => ({
+      id: l.id,
+      nombre: l.nombre,
+      temporada: l.temporada,
+      categorias: JSON.parse(l.categorias || '[]'),
+      createdAt: l.createdAt.toISOString(),
+      updatedAt: l.updatedAt.toISOString(),
+    }));
+
+    return reply.send(list);
+  });
+
+  app.post<{
+    Body: { nombre: string; temporada: string; categorias?: string[] };
+  }>('/admin/ligas', { preHandler: [app.authenticate] }, async (request, reply) => {
+    const req = request as AuthRequest;
+    if (!req.isSuperAdmin) {
+      return reply
+        .status(403)
+        .send({ code: 'FORBIDDEN', message: 'Solo superadmin puede crear ligas' });
+    }
+
+    const { nombre, temporada, categorias } = request.body || {};
+    if (!nombre || !temporada) {
+      return reply.status(400).send({
+        code: 'VALIDATION',
+        message: 'nombre y temporada son requeridos',
+      });
+    }
+
+    const cats = categorias && categorias.length > 0
+      ? categorias
+      : ['primera', 'segunda', 'veteranos', 'femenil', 'varonil'];
+
+    const liga = await prisma.liga.create({
+      data: {
+        nombre,
+        temporada,
+        categorias: JSON.stringify(cats),
+      },
+    });
+
+    return reply.send({
+      id: liga.id,
+      nombre: liga.nombre,
+      temporada: liga.temporada,
+      categorias: cats,
+      createdAt: liga.createdAt.toISOString(),
+      updatedAt: liga.updatedAt.toISOString(),
+    });
+  });
+
   app.get<{
     Querystring: { ligaId: string; fechaDesde?: string; fechaHasta?: string; conIncidencia?: string };
   }>(
@@ -161,6 +279,89 @@ export async function ligaRoutes(app: FastifyInstance) {
       });
 
       return reply.send(stats);
+    }
+  );
+
+  // Configuración de reglas de liga (admin_liga y capitanes pueden leer)
+  app.get<{ Querystring: { ligaId: string } }>(
+    '/liga/reglas',
+    { preHandler: [app.authenticate, ensureMembership, requireRole('admin_liga', 'capturista_roster')] },
+    async (request, reply) => {
+      const { ligaId } = request.query;
+      const req = request as { ligaId: string };
+      if (!ligaId || req.ligaId !== ligaId) {
+        return reply.status(400).send({ code: 'VALIDATION', message: 'ligaId es requerido' });
+      }
+
+      const liga = await prisma.liga.findUnique({ where: { id: ligaId } });
+      if (!liga) {
+        return reply.status(404).send({ code: 'NOT_FOUND', message: 'Liga no encontrada' });
+      }
+
+      let config: ReglasLigaConfig;
+      try {
+        config = JSON.parse(liga.reglasConfig || '{}') as ReglasLigaConfig;
+      } catch {
+        config = {} as ReglasLigaConfig;
+      }
+
+      const defaultFuerzas = config.fuerzas ?? ['primera', 'intermedia', 'segunda'];
+      const fuerzasPorRama = config.fuerzasPorRama ?? {
+        varonil: defaultFuerzas,
+        femenil: defaultFuerzas,
+        mixta: defaultFuerzas,
+        veteranos: defaultFuerzas,
+        infantil: defaultFuerzas,
+      };
+
+      // Defaults razonables si aún no hay configuración guardada
+      const withDefaults: ReglasLigaConfig = {
+        duracionCuartoMin: config.duracionCuartoMin ?? 10,
+        partidosClasificacion: config.partidosClasificacion ?? 20,
+        tienePlayoffs: config.tienePlayoffs ?? true,
+        temporadaInicio: config.temporadaInicio ?? null,
+        ramas: {
+          varonil: config.ramas?.varonil ?? true,
+          femenil: config.ramas?.femenil ?? true,
+          mixta: config.ramas?.mixta ?? false,
+          veteranos: config.ramas?.veteranos ?? false,
+          infantil: config.ramas?.infantil ?? false,
+        },
+        fuerzas: defaultFuerzas,
+        fuerzasPorRama,
+        maxJugadoresPorEquipo: config.maxJugadoresPorEquipo ?? 15,
+        maxInvitadosPorPartido: config.maxInvitadosPorPartido ?? 3,
+        permitirInvitadosSinCurp: config.permitirInvitadosSinCurp ?? true,
+        periodoInscripcion: config.periodoInscripcion ?? { inicio: null, fin: null },
+      };
+
+      return reply.send(withDefaults);
+    }
+  );
+
+  app.put<{
+    Body: { ligaId: string; config: ReglasLigaConfig };
+  }>(
+    '/liga/reglas',
+    { preHandler: [app.authenticate, ensureMembership, requireRole('admin_liga')] },
+    async (request, reply) => {
+      const { ligaId, config } = request.body || {};
+      const req = request as { ligaId: string };
+      if (!ligaId || req.ligaId !== ligaId) {
+        return reply.status(400).send({ code: 'VALIDATION', message: 'ligaId es requerido' });
+      }
+
+      const liga = await prisma.liga.findUnique({ where: { id: ligaId } });
+      if (!liga) {
+        return reply.status(404).send({ code: 'NOT_FOUND', message: 'Liga no encontrada' });
+      }
+
+      await prisma.liga.update({
+        where: { id: ligaId },
+        data: { reglasConfig: JSON.stringify(config) },
+      });
+
+      return reply.status(204).send();
     }
   );
 }

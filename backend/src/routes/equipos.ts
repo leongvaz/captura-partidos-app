@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
-import { requireRole } from '../lib/auth.js';
+import { authMiddleware, requireRole, ensureMembership, type AuthRequest } from '../lib/auth.js';
 import { ROLES_LECTURA_ROSTER } from '../lib/rbac.js';
 
 export async function equiposRoutes(app: FastifyInstance) {
@@ -12,6 +12,85 @@ export async function equiposRoutes(app: FastifyInstance) {
       if (!ligaId) return reply.status(400).send({ code: 'VALIDATION', message: 'ligaId es requerido' });
       const list = await prisma.equipo.findMany({
         where: { ligaId },
+        orderBy: { nombre: 'asc' },
+      });
+      return reply.send(
+        list.map((e) => ({
+          id: e.id,
+          ligaId: e.ligaId,
+          nombre: e.nombre,
+          categoria: e.categoria,
+          activo: e.activo,
+          createdAt: e.createdAt.toISOString(),
+          updatedAt: e.updatedAt.toISOString(),
+        }))
+      );
+    }
+  );
+
+  // Registro simple de equipo por capitán (inscripción). Luego se extenderá a solicitudes/aprobación.
+  app.post<{
+    Body: { ligaId: string; nombre: string; rama: string; fuerza: string };
+  }>(
+    '/equipos/registro-capitan',
+    { preHandler: [app.authenticate, ensureMembership, requireRole('capturista_roster')] },
+    async (request, reply) => {
+      const { ligaId, nombre, rama, fuerza } = request.body || {};
+      if (!ligaId || !nombre || !rama || !fuerza) {
+        return reply.status(400).send({
+          code: 'VALIDATION',
+          message: 'ligaId, nombre, rama y fuerza son requeridos',
+        });
+      }
+
+      const liga = await prisma.liga.findUnique({ where: { id: ligaId } });
+      if (!liga) {
+        return reply.status(404).send({ code: 'NOT_FOUND', message: 'Liga no encontrada' });
+      }
+
+      // Evitar nombres duplicados dentro de la misma combinación rama+fuerza
+      const categoria = `${rama}:${fuerza}`;
+      const existing = await prisma.equipo.findFirst({
+        where: { ligaId, categoria, nombre },
+      });
+      if (existing) {
+        return reply.status(400).send({
+          code: 'EQUIPO_DUPLICADO',
+          message: 'Ya existe un equipo con ese nombre en esa rama y fuerza',
+        });
+      }
+
+      const req = request as AuthRequest;
+
+      const equipo = await prisma.equipo.create({
+        data: {
+          ligaId,
+          duenoId: req.usuarioId,
+          nombre,
+          categoria,
+        },
+      });
+
+      return reply.send({
+        id: equipo.id,
+        ligaId: equipo.ligaId,
+        nombre: equipo.nombre,
+        categoria: equipo.categoria,
+        activo: equipo.activo,
+        createdAt: equipo.createdAt.toISOString(),
+        updatedAt: equipo.updatedAt.toISOString(),
+      });
+    }
+  );
+
+  // Equipos del capitán autenticado en la liga actual
+  app.get(
+    '/equipos/mis',
+    { preHandler: [app.authenticate, ensureMembership, requireRole('capturista_roster')] },
+    async (request, reply) => {
+      const req = request as AuthRequest;
+      const list = await prisma.equipo.findMany({
+        where: { ligaId: req.ligaId, duenoId: req.usuarioId, activo: true },
         orderBy: { nombre: 'asc' },
       });
       return reply.send(
