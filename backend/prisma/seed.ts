@@ -126,12 +126,23 @@ async function main() {
     },
   });
 
+  const sedeDemo = await prisma.sede.upsert({
+    where: { id: '00000000-0000-0000-0000-0000000000AA' },
+    update: {},
+    create: {
+      id: '00000000-0000-0000-0000-0000000000AA',
+      ligaId: liga.id,
+      nombre: 'Sede demo',
+    },
+  });
+
   const cancha1 = await prisma.cancha.upsert({
     where: { id: '00000000-0000-0000-0000-000000000003' },
-    update: {},
+    update: { sedeId: sedeDemo.id },
     create: {
       id: '00000000-0000-0000-0000-000000000003',
       ligaId: liga.id,
+      sedeId: sedeDemo.id,
       nombre: 'Cancha 1',
     },
   });

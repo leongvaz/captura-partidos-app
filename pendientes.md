@@ -30,6 +30,7 @@ Elementos **no contemplados** en los bloques actuales del plan MVP (docs 08, 13)
 ## Sincronización y backend
 
 - ~~**Sincronizar incidencias**~~ ✅ Hecho: `runSync` envía incidencias `synced === false` a `POST /partidos/:id/incidencias` con `id` idempotente y marca `synced: true`.
+- **Subida y almacenamiento de fotos (pendiente):** hoy los flujos capturan archivo (selfie / foto de jugador) y/o el modelo contempla `fotoUrl`, pero **no existe** implementación real de upload a storage (ni Cloudflare, ni Render, ni otro). Definir un storage (ideal: gratuito o con free tier) y flujo: upload (directo o presigned URL) → obtener URL → guardar `fotoUrl` en BD.
 - **Tabla Sancion (suspensiones):** Modelo en backend (jugadorId, partidosSuspendidos, desdePartidoId, motivo, activa) y lógica para aplicar “no puede jugar los próximos N partidos” cuando se registra expulsión por 2 técnicas (1 partido) o 2 antideportivas (2 partidos). Opcional: endpoint para que el frontend consulte si un jugador está sancionado.
 
 ---

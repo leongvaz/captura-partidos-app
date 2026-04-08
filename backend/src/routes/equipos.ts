@@ -4,6 +4,63 @@ import { authMiddleware, requireRole, ensureMembership, type AuthRequest } from 
 import { ROLES_LECTURA_ROSTER } from '../lib/rbac.js';
 
 export async function equiposRoutes(app: FastifyInstance) {
+  /** Equipo + jugadores activos (solo superadmin, cualquier liga) */
+  app.get<{ Params: { equipoId: string } }>(
+    '/admin/equipos/:equipoId',
+    { preHandler: [app.authenticate] },
+    async (request, reply) => {
+      const req = request as AuthRequest;
+      if (!req.isSuperAdmin) {
+        return reply.status(403).send({ code: 'FORBIDDEN', message: 'Solo superadmin' });
+      }
+      const { equipoId } = request.params;
+      const equipo = await prisma.equipo.findUnique({
+        where: { id: equipoId },
+        include: {
+          jugadores: {
+            where: { activo: true },
+            orderBy: { numero: 'asc' },
+          },
+        },
+      });
+      if (!equipo) {
+        return reply.status(404).send({ code: 'NOT_FOUND', message: 'Equipo no encontrado' });
+      }
+      return reply.send({
+        equipo: {
+          id: equipo.id,
+          ligaId: equipo.ligaId,
+          nombre: equipo.nombre,
+          categoria: equipo.categoria,
+          activo: equipo.activo,
+          createdAt: equipo.createdAt.toISOString(),
+          updatedAt: equipo.updatedAt.toISOString(),
+        },
+        jugadores: equipo.jugadores.map((j) => ({
+          id: j.id,
+          equipoId: j.equipoId,
+          nombre: j.nombre,
+          apellido: j.apellido,
+          numero: j.numero,
+          curp: j.curp,
+          invitado: j.invitado,
+          activo: j.activo,
+          createdAt: j.createdAt.toISOString(),
+          updatedAt: j.updatedAt.toISOString(),
+        })),
+      });
+    }
+  );
+
+  function normalizarNombreEquipo(nombre: string): string {
+    return (nombre || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
   app.get<{ Querystring: { ligaId?: string } }>(
     '/equipos',
     { preHandler: [app.authenticate, requireRole(...ROLES_LECTURA_ROSTER)] },
@@ -50,10 +107,13 @@ export async function equiposRoutes(app: FastifyInstance) {
 
       // Evitar nombres duplicados dentro de la misma combinación rama+fuerza
       const categoria = `${rama}:${fuerza}`;
-      const existing = await prisma.equipo.findFirst({
-        where: { ligaId, categoria, nombre },
+      const equiposMismaCategoria = await prisma.equipo.findMany({
+        where: { ligaId, categoria, activo: true },
+        select: { id: true, nombre: true },
       });
-      if (existing) {
+      const nombreNorm = normalizarNombreEquipo(nombre);
+      const existeDuplicado = equiposMismaCategoria.some((e) => normalizarNombreEquipo(e.nombre) === nombreNorm);
+      if (existeDuplicado) {
         return reply.status(400).send({
           code: 'EQUIPO_DUPLICADO',
           message: 'Ya existe un equipo con ese nombre en esa rama y fuerza',

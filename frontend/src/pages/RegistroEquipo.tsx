@@ -2,7 +2,15 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 import type { ReglasLigaConfig } from '@/lib/api';
-import { obtenerLigaPublica, obtenerReglasLiga, registrarCapitan, registrarEquipoCapitan } from '@/lib/api';
+import {
+  obtenerLigaPublica,
+  obtenerReglasLiga,
+  registrarCapitan,
+  registrarEquipoCapitan,
+} from '@/lib/api';
+import { AppPage, PageHeader, SectionCard } from '@/components/ui/Page';
+import { FormField, TextInput, SelectInput } from '@/components/ui/Form';
+import { Button } from '@/components/ui/Button';
 
 function normalizarNombrePropio(valor: string): string {
   if (!valor) return '';
@@ -121,17 +129,19 @@ export default function RegistroEquipo() {
 
   if (!usuario) {
     return (
-      <div className="p-4 max-w-md mx-auto">
-        <h1 className="text-2xl font-bold text-slate-100 mb-2">Crear cuenta para registrar equipo</h1>
-        <p className="text-slate-400 text-sm mb-4">
-          Liga:{' '}
-          <span className="font-medium text-slate-100">
-            {ligaNombrePublica || ligaNombreStore || '—'}
-          </span>
-          . Regístrate como capitán para poder inscribir tu equipo en esta liga.
-        </p>
-        {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
-        <form
+      <div className="min-h-screen flex flex-col justify-center bg-slate-900">
+        <AppPage maxWidth="md">
+          <PageHeader
+            title="Crear cuenta para registrar equipo"
+            subtitle={
+              ligaNombrePublica || ligaNombreStore
+                ? `Liga: ${ligaNombrePublica || ligaNombreStore}`
+                : 'Regístrate como capitán para inscribir tu equipo.'
+            }
+          />
+          {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
+          <SectionCard>
+            <form
           onSubmit={async (e) => {
             e.preventDefault();
             if (!ligaIdQuery) {
@@ -170,102 +180,86 @@ export default function RegistroEquipo() {
               setRegistering(false);
             }
           }}
-          className="space-y-3"
+          className="space-y-4"
         >
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Nombre(s)</label>
-            <input
+          <FormField label="Nombre(s)">
+            <TextInput
               type="text"
               value={regNombres}
               onChange={(e) => setRegNombres(e.target.value)}
-              className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
               required
             />
-          </div>
+          </FormField>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Apellido paterno</label>
-              <input
+            <FormField label="Apellido paterno">
+              <TextInput
                 type="text"
                 value={regApellidoP}
                 onChange={(e) => setRegApellidoP(e.target.value)}
-                className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
                 required
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Apellido materno</label>
-              <input
+            </FormField>
+            <FormField label="Apellido materno">
+              <TextInput
                 type="text"
                 value={regApellidoM}
                 onChange={(e) => setRegApellidoM(e.target.value)}
-                className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
               />
-            </div>
+            </FormField>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">CURP</label>
-            <input
+          <FormField label="CURP">
+            <TextInput
               type="text"
               value={regCurp}
               onChange={(e) => setRegCurp(e.target.value.toUpperCase())}
               maxLength={18}
-              className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
               placeholder="18 caracteres en mayúsculas"
               required
             />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Correo electrónico</label>
-            <input
+          </FormField>
+          <FormField label="Correo electrónico">
+            <TextInput
               type="email"
               value={regEmail}
               onChange={(e) => setRegEmail(e.target.value)}
-              className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
               required
             />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Contraseña</label>
-            <input
+          </FormField>
+          <FormField label="Contraseña">
+            <TextInput
               type="password"
               value={regPassword}
               onChange={(e) => setRegPassword(e.target.value)}
-              className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
               required
             />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Repite la contraseña</label>
-            <input
+          </FormField>
+          <FormField label="Repite la contraseña">
+            <TextInput
               type="password"
               value={regPassword2}
               onChange={(e) => setRegPassword2(e.target.value)}
-              className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
               required
             />
-          </div>
-          <button
-            type="submit"
-            disabled={registering}
-            className="mt-2 w-full rounded-lg bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 px-4 disabled:opacity-50"
-          >
+          </FormField>
+          <Button type="submit" disabled={registering} size="lg" className="w-full">
             {registering ? 'Creando cuenta...' : 'Crear cuenta y continuar'}
-          </button>
+          </Button>
         </form>
-        <button
-          type="button"
-          onClick={() =>
-            navigate(
-              `/login?redirect=${encodeURIComponent(
-                `/registro-equipo?ligaId=${encodeURIComponent(ligaIdQuery)}`
-              )}`
-            )
-          }
-          className="mt-4 w-full text-center text-sm text-slate-400 hover:text-slate-200"
-        >
-          ¿Ya tienes cuenta? Inicia sesión para registrar tu equipo
-        </button>
+          </SectionCard>
+          <button
+            type="button"
+            onClick={() =>
+              navigate(
+                `/login?redirect=${encodeURIComponent(
+                  `/registro-equipo?ligaId=${encodeURIComponent(ligaIdQuery)}`
+                )}`
+              )
+            }
+            className="mt-4 w-full text-center text-sm text-slate-400 hover:text-slate-200"
+          >
+            ¿Ya tienes cuenta? Inicia sesión para registrar tu equipo
+          </button>
+        </AppPage>
       </div>
     );
   }
@@ -275,110 +269,99 @@ export default function RegistroEquipo() {
   }
 
   return (
-    <div className="p-4 max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold text-slate-100 mb-2">Registro de equipo</h1>
-      <p className="text-slate-400 text-sm mb-4">
-        Liga:{' '}
-        <span className="font-medium text-slate-100">
-          {ligaNombrePublica || ligaNombreStore || ligaIdQuery}
-        </span>
-        . Completa los datos para inscribir tu equipo en esta liga.
-      </p>
+    <div className="min-h-screen flex flex-col bg-slate-900">
+      <AppPage maxWidth="md">
+        <PageHeader
+          title="Registro de equipo"
+          subtitle={`Liga: ${ligaNombrePublica || ligaNombreStore || ligaIdQuery}`}
+        />
 
-      {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
+        {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
 
-      {loading || !config ? (
-        <p className="text-slate-400 text-sm">Cargando configuración de la liga...</p>
-      ) : (
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Nombre del equipo</label>
-            <input
-              type="text"
-              value={nombreEquipo}
-              onChange={(e) => setNombreEquipo(e.target.value)}
-              className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
-              required
-            />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Rama</label>
-              <select
-                value={rama}
-                onChange={(e) => {
-                  const nuevaRama = e.target.value;
-                  setRama(nuevaRama);
-                  const fuerzas = config.fuerzasPorRama[nuevaRama as keyof ReglasLigaConfig['fuerzasPorRama']] || [];
-                  setFuerza(fuerzas[0] || '');
-                }}
-                className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
-                required
-              >
-                <option value="">Selecciona rama</option>
-                {(['varonil', 'femenil', 'mixta', 'veteranos', 'infantil'] as const).map((r) =>
-                  config.ramas[r] ? (
-                    <option key={r} value={r}>
-                      {r.charAt(0).toUpperCase() + r.slice(1)}
-                    </option>
-                  ) : null
-                )}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Fuerza</label>
-              <select
-                value={fuerza}
-                onChange={(e) => setFuerza(e.target.value)}
-                className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
-                required
-              >
-                <option value="">Selecciona fuerza</option>
-                {rama &&
-                  (config.fuerzasPorRama[
-                    rama as keyof ReglasLigaConfig['fuerzasPorRama']
-                  ] || []
-                  ).map((f) => (
-                    <option key={f} value={f}>
-                      {f.charAt(0).toUpperCase() + f.slice(1)}
-                    </option>
-                  ))}
-              </select>
-            </div>
-          </div>
+        {loading || !config ? (
+          <p className="text-slate-400 text-sm">Cargando configuración de la liga...</p>
+        ) : (
+          <SectionCard>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <FormField label="Nombre del equipo">
+                <TextInput
+                  type="text"
+                  value={nombreEquipo}
+                  onChange={(e) => setNombreEquipo(e.target.value)}
+                  required
+                />
+              </FormField>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <FormField label="Rama">
+                  <SelectInput
+                    value={rama}
+                    onChange={(e) => {
+                      const nuevaRama = e.target.value;
+                      setRama(nuevaRama);
+                      const fuerzas =
+                        config.fuerzasPorRama[
+                          nuevaRama as keyof ReglasLigaConfig['fuerzasPorRama']
+                        ] || [];
+                      setFuerza(fuerzas[0] || '');
+                    }}
+                    required
+                  >
+                    <option value="">Selecciona rama</option>
+                    {(['varonil', 'femenil', 'mixta', 'veteranos', 'infantil'] as const).map((r) =>
+                      config.ramas[r] ? (
+                        <option key={r} value={r}>
+                          {r.charAt(0).toUpperCase() + r.slice(1)}
+                        </option>
+                      ) : null
+                    )}
+                  </SelectInput>
+                </FormField>
+                <FormField label="Fuerza">
+                  <SelectInput
+                    value={fuerza}
+                    onChange={(e) => setFuerza(e.target.value)}
+                    required
+                  >
+                    <option value="">Selecciona fuerza</option>
+                    {rama &&
+                      (config.fuerzasPorRama[
+                        rama as keyof ReglasLigaConfig['fuerzasPorRama']
+                      ] || []
+                      ).map((f) => (
+                        <option key={f} value={f}>
+                          {f.charAt(0).toUpperCase() + f.slice(1)}
+                        </option>
+                      ))}
+                  </SelectInput>
+                </FormField>
+              </div>
 
-          <p className="text-xs text-slate-400">
-            Solo puedes registrar este equipo en una combinación de rama y fuerza. Más adelante
-            podrás agregar jugadores y ver tus partidos desde tu panel.
-          </p>
+              <p className="text-xs text-slate-400">
+                Solo puedes registrar este equipo en una combinación de rama y fuerza. Más adelante
+                podrás agregar jugadores y ver tus partidos desde tu panel.
+              </p>
 
-          <button
-            type="submit"
-            disabled={saving}
-            className="mt-2 w-full rounded-lg bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 px-4 disabled:opacity-50"
-          >
-            {saving ? 'Registrando equipo...' : 'Registrar equipo'}
-          </button>
-        </form>
-      )}
+              <Button type="submit" disabled={saving} size="lg" className="w-full mt-1">
+                {saving ? 'Registrando equipo...' : 'Registrar equipo'}
+              </Button>
+            </form>
+          </SectionCard>
+        )}
 
-      {savedMessage && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 border border-slate-600 rounded-xl p-5 max-w-sm w-full shadow-xl">
-            <h2 className="text-lg font-semibold text-slate-100 mb-2">Equipo registrado</h2>
-            <p className="text-sm text-slate-300 mb-4">{savedMessage}</p>
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={() => setSavedMessage('')}
-                className="rounded-lg bg-primary-600 hover:bg-primary-700 text-white font-medium px-4 py-2"
-              >
-                Aceptar
-              </button>
+        {savedMessage && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-800 border border-slate-600 rounded-xl p-5 max-w-sm w-full shadow-xl">
+              <h2 className="text-lg font-semibold text-slate-100 mb-2">Equipo registrado</h2>
+              <p className="text-sm text-slate-300 mb-4">{savedMessage}</p>
+              <div className="flex justify-end">
+                <Button type="button" onClick={() => setSavedMessage('')}>
+                  Aceptar
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </AppPage>
     </div>
   );
 }

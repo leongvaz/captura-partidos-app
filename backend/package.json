@@ -4,8 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "postinstall": "prisma generate",
+    "predev": "prisma generate",
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "prisma generate && tsc",
+    "prestart": "prisma generate",
     "start": "node dist/index.js",
     "build:render": "node ./node_modules/prisma/build/index.js generate && node ./node_modules/prisma/build/index.js db push && node ./node_modules/tsx/dist/cli.mjs prisma/seed.ts",
     "start:render": "node ./node_modules/prisma/build/index.js generate && node ./node_modules/tsx/dist/cli.mjs src/index.ts",
@@ -13,7 +16,9 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "db:migrate-rbac": "tsx prisma/migrate-rbac.ts"
+    "db:migrate-rbac": "tsx prisma/migrate-rbac.ts",
+    "db:backfill-historial": "tsx src/scripts/backfill_persona_resumenes.ts",
+    "db:backfill-sedes": "tsx src/scripts/backfill_sedes_canchas.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

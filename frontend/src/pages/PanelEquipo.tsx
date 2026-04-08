@@ -3,6 +3,32 @@ import { useAuthStore } from '@/store/authStore';
 import { useNavigate } from 'react-router-dom';
 import { listarMisEquipos, type Equipo } from '@/lib/api';
 
+function formatearCategoria(categoriaCruda: string | undefined | null): string {
+  if (!categoriaCruda) return 'Sin categoría';
+
+  const partes = categoriaCruda.split(':');
+  const [a, b] = partes;
+
+  const normalizar = (valor: string) =>
+    valor.charAt(0).toUpperCase() + valor.slice(1).toLocaleLowerCase('es-MX');
+
+  // Soportar tanto "femenil:primera" como "primera:femenil"
+  if (partes.length === 2) {
+    const esPrimeraParteFuerza = ['primera', 'segunda', 'tercera', 'intermedia', 'especial'].includes(
+      a.toLocaleLowerCase('es-MX')
+    );
+
+    if (esPrimeraParteFuerza) {
+      return `${normalizar(a)} ${normalizar(b)}`;
+    }
+
+    // Caso típico: rama:fuerza -> "Femenil primera"
+    return `${normalizar(b)} ${normalizar(a)}`;
+  }
+
+  return normalizar(categoriaCruda);
+}
+
 export default function PanelEquipo() {
   const usuario = useAuthStore((s) => s.usuario);
   const liga = useAuthStore((s) => s.liga);
@@ -40,11 +66,14 @@ export default function PanelEquipo() {
     };
   }, []);
 
+  const sexoCurp = usuario.curp?.[10]?.toUpperCase();
+  const saludo = sexoCurp === 'M' ? 'Bienvenida' : 'Bienvenido';
+
   return (
     <div className="p-4 max-w-3xl mx-auto space-y-4">
       <h1 className="text-2xl font-bold text-slate-100 mb-2">Panel de capitán</h1>
       <p className="text-slate-400 text-sm">
-        Bienvenido, <span className="font-medium text-slate-100">{usuario.nombre}</span>. Aquí podrás
+        {saludo}, <span className="font-medium text-slate-100">{usuario.nombre}</span>. Aquí podrás
         registrar equipos y gestionar la lista de jugadores de cada uno en la liga{' '}
         <span className="font-medium text-slate-100">{liga.nombre}</span>.
       </p>
@@ -86,7 +115,7 @@ export default function PanelEquipo() {
               >
                 <div>
                   <div className="font-medium">{e.nombre}</div>
-                  <div className="text-xs text-slate-400">Categoría: {e.categoria}</div>
+                  <div className="text-xs text-slate-400">{formatearCategoria(e.categoria)}</div>
                 </div>
                 <button
                   type="button"

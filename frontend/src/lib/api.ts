@@ -13,13 +13,17 @@ type ApiRequestInit = Omit<RequestInit, 'body'> & { body?: unknown };
 export async function api<T>(path: string, options: ApiRequestInit = {}): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
   const isFormData = options.body instanceof FormData;
-  if (isFormData) delete headers['Content-Type'];
-  const body = isFormData ? (options.body as FormData) : (options.body != null ? JSON.stringify(options.body) : undefined);
+  const hasJsonBody = !isFormData && options.body != null;
+  if (hasJsonBody) headers['Content-Type'] = 'application/json';
+  const body = isFormData
+    ? (options.body as FormData)
+    : options.body != null
+      ? JSON.stringify(options.body)
+      : undefined;
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers,
@@ -35,7 +39,7 @@ export async function api<T>(path: string, options: ApiRequestInit = {}): Promis
 
 export interface AuthResponse {
   token: string;
-  usuario: { id: string; ligaId: string; nombre: string; roles: string[]; isSuperAdmin?: boolean };
+  usuario: { id: string; ligaId: string; nombre: string; roles: string[]; isSuperAdmin?: boolean; curp?: string | null };
   liga: Liga;
 }
 interface Liga {
@@ -43,6 +47,7 @@ interface Liga {
   nombre: string;
   temporada: string;
   categorias: string[];
+  deporte?: string;
 }
 
 export async function login(ligaId: string, pin: string): Promise<AuthResponse> {
@@ -96,6 +101,8 @@ export interface ReglasLigaConfig {
   partidosClasificacion: number;
   tienePlayoffs: boolean;
   temporadaInicio?: string | null;
+  /** Último día de temporada (elegido por el admin; `yyyy-MM-dd`). */
+  temporadaFin?: string | null;
   ramas: {
     varonil: boolean;
     femenil: boolean;
@@ -118,10 +125,58 @@ export interface ReglasLigaConfig {
     inicio?: string | null;
     fin?: string | null;
   };
+  /** Rango horario permitido para partidos (`HH:mm`, 24 h). `horaFin` = hora a la que debe iniciar (o terminar) el último partido. */
+  jornadaHorario?: {
+    horaInicio?: string | null;
+    horaFin?: string | null;
+  };
+}
+
+/** `type="date"` solo acepta `yyyy-MM-dd`; ISO completo u otros formatos se muestran vacíos. */
+function fechaReglasAInput(raw: string | null | undefined): string | null {
+  if (raw == null || raw === '') return null;
+  const s = String(raw).trim();
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${mo}-${day}`;
+}
+
+function horaReglasHHmm(raw: string | null | undefined): string | null {
+  if (raw == null || raw === '') return null;
+  const s = String(raw).trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?/);
+  if (!m) return null;
+  const h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
+  const min = Math.min(59, Math.max(0, parseInt(m[2], 10)));
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
+function normalizarFechasReglasCliente(cfg: ReglasLigaConfig): ReglasLigaConfig {
+  const pi = cfg.periodoInscripcion;
+  const jh = cfg.jornadaHorario;
+  return {
+    ...cfg,
+    temporadaInicio: fechaReglasAInput(cfg.temporadaInicio),
+    temporadaFin: fechaReglasAInput(cfg.temporadaFin),
+    periodoInscripcion: {
+      inicio: fechaReglasAInput(pi?.inicio),
+      fin: fechaReglasAInput(pi?.fin),
+    },
+    jornadaHorario: {
+      horaInicio: horaReglasHHmm(jh?.horaInicio) ?? jh?.horaInicio ?? '08:00',
+      horaFin: horaReglasHHmm(jh?.horaFin) ?? jh?.horaFin ?? '14:00',
+    },
+  };
 }
 
 export async function obtenerReglasLiga(ligaId: string): Promise<ReglasLigaConfig> {
-  return api<ReglasLigaConfig>(`/liga/reglas?ligaId=${ligaId}`);
+  const cfg = await api<ReglasLigaConfig>(`/liga/reglas?ligaId=${ligaId}`);
+  return normalizarFechasReglasCliente(cfg);
 }
 
 export async function guardarReglasLiga(ligaId: string, config: ReglasLigaConfig): Promise<void> {
@@ -161,9 +216,11 @@ export async function listarMisEquipos(): Promise<Equipo[]> {
 export interface Jugador {
   id: string;
   equipoId: string;
+  personaId?: string | null;
   nombre: string;
   apellido: string;
   numero: number;
+  curp?: string | null;
   invitado: boolean;
   activo: boolean;
   createdAt: string;
@@ -180,6 +237,7 @@ export async function registrarJugador(data: {
   apellidoPaterno: string;
   apellidoMaterno?: string;
   numero: number;
+  curp: string;
 }): Promise<Jugador> {
   return api<Jugador>('/jugadores', { method: 'POST', body: data });
 }
@@ -187,7 +245,7 @@ export async function registrarJugador(data: {
 export async function actualizarJugador(id: string, data: {
   nombre: string;
   apellidoPaterno: string;
-  apellidoMaterno?: string;
+  apellidoMaterno: string;
   numero: number;
 }): Promise<Jugador> {
   return api<Jugador>(`/jugadores/${id}`, { method: 'PUT', body: data });
@@ -206,11 +264,170 @@ export async function crearLigaAdmin(data: {
   nombre: string;
   temporada: string;
   categorias?: string[];
+  deporte?: string;
 }): Promise<Liga> {
   return api<Liga>('/admin/ligas', { method: 'POST', body: data });
+}
+
+export interface LigaAdminDetalleEquipo {
+  id: string;
+  nombre: string;
+  categoria: string;
+  jugadoresActivos: number;
+}
+
+export interface LigaAdminDetalleResponse {
+  liga: { id: string; nombre: string; temporada: string; deporte: string; categorias: string[] };
+  reglas: ReglasLigaConfig;
+  equipos: LigaAdminDetalleEquipo[];
+}
+
+export async function obtenerLigaAdminDetalle(ligaId: string): Promise<LigaAdminDetalleResponse> {
+  return api<LigaAdminDetalleResponse>(`/admin/ligas/${ligaId}`);
+}
+
+export interface EquipoAdminDetalleResponse {
+  equipo: Equipo;
+  jugadores: Jugador[];
+}
+
+export async function obtenerEquipoAdminDetalle(equipoId: string): Promise<EquipoAdminDetalleResponse> {
+  return api<EquipoAdminDetalleResponse>(`/admin/equipos/${equipoId}`);
 }
 
 // Info pública de liga (para pantallas de registro)
 export async function obtenerLigaPublica(ligaId: string): Promise<Liga> {
   return api<Liga>(`/liga/public-info?ligaId=${ligaId}`);
+}
+
+export interface HistorialPersonaInscripcion {
+  jugadorId: string;
+  ligaId: string;
+  ligaNombre: string;
+  temporada: string;
+  deporte: string;
+  equipoId: string;
+  equipoNombre: string;
+  categoria: string;
+  numero: number;
+  activo: boolean;
+  invitado: boolean;
+  inscripcionDesde: string;
+}
+
+export interface HistorialPersonaPartido {
+  partidoId: string;
+  fecha: string;
+  horaInicio: string;
+  folio: string | null;
+  estado: string;
+  categoriaPartido: string;
+  liga: { id: string; nombre: string; temporada: string; deporte: string };
+  equipo: { id: string; nombre: string; categoria: string };
+  rivalNombre: string;
+  localEsEquipo: boolean;
+  resumen: {
+    puntos: number;
+    canastasDe2: number;
+    canastasDe3: number;
+    tirosLibresAnotados: number;
+    faltas: number;
+    minutosJugados: number | null;
+  };
+}
+
+export interface HistorialPersonaResponse {
+  persona: {
+    id: string;
+    curp: string;
+    nombreDisplay: string | null;
+    apellidoDisplay: string | null;
+    sexo: string | null;
+    fechaNacimiento: string | null;
+  } | null;
+  inscripciones: HistorialPersonaInscripcion[];
+  partidos: HistorialPersonaPartido[];
+  totalesGlobales: {
+    partidosConResumen: number;
+    puntosTotales: number;
+    faltasTotales: number;
+  };
+}
+
+export async function obtenerHistorialPersonaPorCurp(curp: string): Promise<HistorialPersonaResponse> {
+  const q = encodeURIComponent(curp.trim().toUpperCase());
+  return api<HistorialPersonaResponse>(`/admin/personas/historial?curp=${q}`);
+}
+
+export interface CanchaEnSede {
+  id: string;
+  ligaId: string;
+  sedeId: string | null;
+  nombre: string;
+  activo: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SedeConCanchas {
+  id: string;
+  ligaId: string;
+  nombre: string;
+  activo: boolean;
+  createdAt: string;
+  updatedAt: string;
+  canchas: CanchaEnSede[];
+}
+
+export async function listarSedes(ligaId: string): Promise<SedeConCanchas[]> {
+  return api<SedeConCanchas[]>(`/sedes?ligaId=${ligaId}`);
+}
+
+export async function crearSede(ligaId: string, nombre: string): Promise<SedeConCanchas> {
+  return api<SedeConCanchas>('/sedes', { method: 'POST', body: { ligaId, nombre } });
+}
+
+export async function crearCanchaEnSede(sedeId: string, nombre: string): Promise<{
+  id: string;
+  ligaId: string;
+  sedeId: string | null;
+  nombre: string;
+  nombreCompleto: string;
+  sede: { id: string; nombre: string } | null;
+  activo: boolean;
+  createdAt: string;
+  updatedAt: string;
+}> {
+  return api('/canchas', { method: 'POST', body: { sedeId, nombre } });
+}
+
+export async function actualizarSede(
+  sedeId: string,
+  body: { nombre?: string; activo?: boolean }
+): Promise<{
+  id: string;
+  ligaId: string;
+  nombre: string;
+  activo: boolean;
+  createdAt: string;
+  updatedAt: string;
+}> {
+  return api(`/sedes/${sedeId}`, { method: 'PATCH', body });
+}
+
+export async function actualizarCancha(
+  canchaId: string,
+  body: { nombre?: string; activo?: boolean }
+): Promise<{
+  id: string;
+  ligaId: string;
+  sedeId: string | null;
+  nombre: string;
+  nombreCompleto: string;
+  sede: { id: string; nombre: string } | null;
+  activo: boolean;
+  createdAt: string;
+  updatedAt: string;
+}> {
+  return api(`/canchas/${canchaId}`, { method: 'PATCH', body });
 }

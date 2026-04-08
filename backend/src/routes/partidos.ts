@@ -6,6 +6,9 @@ import { prisma } from '../lib/prisma.js';
 import { requireRole } from '../lib/auth.js';
 import type { AuthRequest } from '../lib/auth.js';
 import { ROLES_LECTURA_ROSTER, ROLES_PARTIDO } from '../lib/rbac.js';
+import { syncResumenesPartido } from '../lib/resumenJugadorPartido.js';
+import { etiquetaCancha } from '../lib/canchaEtiqueta.js';
+import { sedeNombrePorIdMap } from '../lib/canchaSedeBatch.js';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 
@@ -226,6 +229,7 @@ export async function partidosRoutes(app: FastifyInstance) {
         data: { estado, folio, cerradoAt: new Date() },
       }),
     ]);
+    await syncResumenesPartido(partidoId);
     const updated = await prisma.partido.findUnique({ where: { id: partidoId } });
     return reply.send(partidoToJson(updated!));
   });
@@ -560,6 +564,7 @@ export async function partidosRoutes(app: FastifyInstance) {
         data: { partidoId, clientClosureId },
       });
     }
+    await syncResumenesPartido(partidoId);
     return reply.send({ partido: partidoToJson(updated), folio });
   });
 
@@ -578,6 +583,13 @@ export async function partidosRoutes(app: FastifyInstance) {
     if (!partido) return reply.status(404).send({ code: 'NOT_FOUND', message: 'Partido no encontrado' });
     const ligaId = (request as { ligaId: string }).ligaId;
     if (partido.ligaId !== ligaId) return reply.status(403).send({ code: 'FORBIDDEN', message: 'No autorizado' });
+
+    const sedeMapActa = await sedeNombrePorIdMap([partido.cancha.sedeId]);
+    const sedeN = partido.cancha.sedeId ? sedeMapActa.get(partido.cancha.sedeId) : undefined;
+    const etiquetaC = etiquetaCancha({
+      nombre: partido.cancha.nombre,
+      sede: sedeN ? { nombre: sedeN } : null,
+    });
 
     const FALTA_TIPOS_ACTA = ['falta_personal', 'falta_tecnica', 'falta_antideportiva'];
     const puntosPorJugador: Record<string, number> = {};
@@ -605,7 +617,7 @@ export async function partidosRoutes(app: FastifyInstance) {
       liga: partido.ligaId,
       local: { nombre: partido.localEquipo.nombre, puntos: localTotal, jugadores: partido.plantilla.filter((p) => p.equipoId === partido.localEquipoId).map((p) => ({ ...p.jugador, puntos: puntosPorJugador[p.jugadorId] || 0, faltas: faltasPorJugador[p.jugadorId] || 0 })) },
       visitante: { nombre: partido.visitanteEquipo.nombre, puntos: visitanteTotal, jugadores: partido.plantilla.filter((p) => p.equipoId === partido.visitanteEquipoId).map((p) => ({ ...p.jugador, puntos: puntosPorJugador[p.jugadorId] || 0, faltas: faltasPorJugador[p.jugadorId] || 0 })) },
-      cancha: partido.cancha.nombre,
+      cancha: etiquetaC,
       categoria: partido.categoria,
       fecha: partido.fecha,
       horaInicio: partido.horaInicio,
@@ -631,6 +643,13 @@ export async function partidosRoutes(app: FastifyInstance) {
     if (!partido) return reply.status(404).send({ code: 'NOT_FOUND', message: 'Partido no encontrado' });
     const ligaId = (request as { ligaId: string }).ligaId;
     if (partido.ligaId !== ligaId) return reply.status(403).send({ code: 'FORBIDDEN', message: 'No autorizado' });
+
+    const sedeMapPdf = await sedeNombrePorIdMap([partido.cancha.sedeId]);
+    const sedePdf = partido.cancha.sedeId ? sedeMapPdf.get(partido.cancha.sedeId) : undefined;
+    const etiquetaPdf = etiquetaCancha({
+      nombre: partido.cancha.nombre,
+      sede: sedePdf ? { nombre: sedePdf } : null,
+    });
 
     const FALTA_TIPOS_ACTA = ['falta_personal', 'falta_tecnica', 'falta_antideportiva'];
     const puntosPorJugador: Record<string, number> = {};
@@ -671,7 +690,7 @@ export async function partidosRoutes(app: FastifyInstance) {
     doc.moveDown(0.5);
     doc.fontSize(12).text(`${partido.localEquipo.nombre} ${localTotal} - ${visitanteTotal} ${partido.visitanteEquipo.nombre}`, { align: 'center' });
     doc.moveDown(0.5);
-    doc.fontSize(10).text(`${partido.categoria} · ${partido.cancha.nombre} · ${partido.fecha} ${partido.horaInicio}`);
+    doc.fontSize(10).text(`${partido.categoria} · ${etiquetaPdf} · ${partido.fecha} ${partido.horaInicio}`);
     doc.moveDown(0.5);
 
     if (partido.estado === 'default_local' || partido.estado === 'default_visitante') {

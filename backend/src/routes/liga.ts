@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { requireRole, ensureMembership, type AuthRequest } from '../lib/auth.js';
+import { etiquetaCancha } from '../lib/canchaEtiqueta.js';
+import { sedeNombrePorIdMap } from '../lib/canchaSedeBatch.js';
 import { ROLES_LECTURA_ROSTER } from '../lib/rbac.js';
 
 const ESTADOS_CERRADOS = ['finalizado', 'default_local', 'default_visitante'] as const;
@@ -10,6 +12,7 @@ type ReglasLigaConfig = {
   partidosClasificacion: number;
   tienePlayoffs: boolean;
   temporadaInicio?: string | null;
+  temporadaFin?: string | null;
   ramas: {
     varonil: boolean;
     femenil: boolean;
@@ -32,7 +35,59 @@ type ReglasLigaConfig = {
     inicio?: string | null;
     fin?: string | null;
   };
+  jornadaHorario?: {
+    horaInicio?: string | null;
+    horaFin?: string | null;
+  };
 };
+
+/**
+ * Deja fechas como `yyyy-MM-dd`. Si en JSON quedó ISO (`2026-04-07T00:00:00.000Z`),
+ * los `<input type="date">` del front se ven vacíos aunque el valor exista.
+ */
+function soloFechaYmd(s: unknown): string | null {
+  if (s == null || s === '') return null;
+  const str = String(s).trim();
+  const m = str.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  const t = Date.parse(str);
+  if (Number.isNaN(t)) return null;
+  const d = new Date(t);
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${mo}-${day}`;
+}
+
+function horaHHMM(s: unknown): string | null {
+  if (s == null || s === '') return null;
+  const str = String(s).trim();
+  const m = str.match(/^(\d{1,2}):(\d{2})(?::\d{2})?/);
+  if (!m) return null;
+  const h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
+  const min = Math.min(59, Math.max(0, parseInt(m[2], 10)));
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
+function normalizarFechasReglasLiga(reglas: ReglasLigaConfig): ReglasLigaConfig {
+  const pi = reglas.periodoInscripcion;
+  const jh = reglas.jornadaHorario;
+  const hi = horaHHMM(jh?.horaInicio);
+  const hf = horaHHMM(jh?.horaFin);
+  return {
+    ...reglas,
+    temporadaInicio: soloFechaYmd(reglas.temporadaInicio),
+    temporadaFin: soloFechaYmd(reglas.temporadaFin),
+    periodoInscripcion: {
+      inicio: soloFechaYmd(pi?.inicio),
+      fin: soloFechaYmd(pi?.fin),
+    },
+    jornadaHorario: {
+      horaInicio: hi ?? '08:00',
+      horaFin: hf ?? '14:00',
+    },
+  };
+}
 
 function getMarcadorPartido(
   partido: { marcadorLocalFinal: number | null; marcadorVisitanteFinal: number | null; estado: string },
@@ -83,6 +138,7 @@ export async function ligaRoutes(app: FastifyInstance) {
       id: liga.id,
       nombre: liga.nombre,
       temporada: liga.temporada,
+      deporte: liga.deporte,
       categorias: JSON.parse(liga.categorias || '[]'),
     });
   });
@@ -104,6 +160,7 @@ export async function ligaRoutes(app: FastifyInstance) {
       id: l.id,
       nombre: l.nombre,
       temporada: l.temporada,
+      deporte: l.deporte,
       categorias: JSON.parse(l.categorias || '[]'),
       createdAt: l.createdAt.toISOString(),
       updatedAt: l.updatedAt.toISOString(),
@@ -113,7 +170,7 @@ export async function ligaRoutes(app: FastifyInstance) {
   });
 
   app.post<{
-    Body: { nombre: string; temporada: string; categorias?: string[] };
+    Body: { nombre: string; temporada: string; categorias?: string[]; deporte?: string };
   }>('/admin/ligas', { preHandler: [app.authenticate] }, async (request, reply) => {
     const req = request as AuthRequest;
     if (!req.isSuperAdmin) {
@@ -122,7 +179,7 @@ export async function ligaRoutes(app: FastifyInstance) {
         .send({ code: 'FORBIDDEN', message: 'Solo superadmin puede crear ligas' });
     }
 
-    const { nombre, temporada, categorias } = request.body || {};
+    const { nombre, temporada, categorias, deporte } = request.body || {};
     if (!nombre || !temporada) {
       return reply.status(400).send({
         code: 'VALIDATION',
@@ -138,6 +195,7 @@ export async function ligaRoutes(app: FastifyInstance) {
       data: {
         nombre,
         temporada,
+        deporte: (deporte && String(deporte).trim()) || 'baloncesto',
         categorias: JSON.stringify(cats),
       },
     });
@@ -146,11 +204,99 @@ export async function ligaRoutes(app: FastifyInstance) {
       id: liga.id,
       nombre: liga.nombre,
       temporada: liga.temporada,
+      deporte: liga.deporte,
       categorias: cats,
       createdAt: liga.createdAt.toISOString(),
       updatedAt: liga.updatedAt.toISOString(),
     });
   });
+
+  /** Detalle de liga para superadmin: reglas + equipos (solo lectura) */
+  app.get<{ Params: { ligaId: string } }>(
+    '/admin/ligas/:ligaId',
+    { preHandler: [app.authenticate] },
+    async (request, reply) => {
+      const req = request as AuthRequest;
+      if (!req.isSuperAdmin) {
+        return reply.status(403).send({ code: 'FORBIDDEN', message: 'Solo superadmin' });
+      }
+      const { ligaId } = request.params;
+      const liga = await prisma.liga.findUnique({ where: { id: ligaId } });
+      if (!liga) {
+        return reply.status(404).send({ code: 'NOT_FOUND', message: 'Liga no encontrada' });
+      }
+
+      let config: ReglasLigaConfig;
+      try {
+        config = JSON.parse(liga.reglasConfig || '{}') as ReglasLigaConfig;
+      } catch {
+        config = {} as ReglasLigaConfig;
+      }
+      const defaultFuerzas = config.fuerzas ?? ['primera', 'intermedia', 'segunda'];
+      const fuerzasPorRama = config.fuerzasPorRama ?? {
+        varonil: defaultFuerzas,
+        femenil: defaultFuerzas,
+        mixta: defaultFuerzas,
+        veteranos: defaultFuerzas,
+        infantil: defaultFuerzas,
+      };
+      const reglasRaw: ReglasLigaConfig = {
+        duracionCuartoMin: config.duracionCuartoMin ?? 10,
+        partidosClasificacion: config.partidosClasificacion ?? 20,
+        tienePlayoffs: config.tienePlayoffs ?? true,
+        temporadaInicio: config.temporadaInicio ?? null,
+        temporadaFin: config.temporadaFin ?? null,
+        ramas: {
+          varonil: config.ramas?.varonil ?? true,
+          femenil: config.ramas?.femenil ?? true,
+          mixta: config.ramas?.mixta ?? false,
+          veteranos: config.ramas?.veteranos ?? false,
+          infantil: config.ramas?.infantil ?? false,
+        },
+        fuerzas: defaultFuerzas,
+        fuerzasPorRama,
+        maxJugadoresPorEquipo: config.maxJugadoresPorEquipo ?? 15,
+        maxInvitadosPorPartido: config.maxInvitadosPorPartido ?? 3,
+        permitirInvitadosSinCurp: config.permitirInvitadosSinCurp ?? true,
+        periodoInscripcion: config.periodoInscripcion ?? { inicio: null, fin: null },
+        jornadaHorario: {
+          horaInicio: config.jornadaHorario?.horaInicio ?? '08:00',
+          horaFin: config.jornadaHorario?.horaFin ?? '14:00',
+        },
+      };
+
+      const reglas = normalizarFechasReglasLiga(reglasRaw);
+
+      const equipos = await prisma.equipo.findMany({
+        where: { ligaId, activo: true },
+        orderBy: [{ categoria: 'asc' }, { nombre: 'asc' }],
+        include: {
+          _count: {
+            select: {
+              jugadores: { where: { activo: true } },
+            },
+          },
+        },
+      });
+
+      return reply.send({
+        liga: {
+          id: liga.id,
+          nombre: liga.nombre,
+          temporada: liga.temporada,
+          deporte: liga.deporte,
+          categorias: JSON.parse(liga.categorias || '[]') as string[],
+        },
+        reglas,
+        equipos: equipos.map((e) => ({
+          id: e.id,
+          nombre: e.nombre,
+          categoria: e.categoria,
+          jugadoresActivos: e._count.jugadores,
+        })),
+      });
+    }
+  );
 
   app.get<{
     Querystring: { ligaId: string; fechaDesde?: string; fechaHasta?: string; conIncidencia?: string };
@@ -190,6 +336,8 @@ export async function ligaRoutes(app: FastifyInstance) {
         orderBy: [{ fecha: 'asc' }, { horaInicio: 'asc' }],
       });
 
+      const sedeMap = await sedeNombrePorIdMap(partidos.map((p) => p.cancha.sedeId));
+
       const list = partidos.map((p) => {
         const { local, visitante } = getMarcadorPartido(
           p,
@@ -198,6 +346,7 @@ export async function ligaRoutes(app: FastifyInstance) {
           p.localEquipoId,
           p.visitanteEquipoId
         );
+        const sedeNombre = p.cancha.sedeId ? sedeMap.get(p.cancha.sedeId) : undefined;
         return {
           id: p.id,
           fecha: p.fecha,
@@ -206,7 +355,10 @@ export async function ligaRoutes(app: FastifyInstance) {
           folio: p.folio,
           localEquipo: { id: p.localEquipo.id, nombre: p.localEquipo.nombre },
           visitanteEquipo: { id: p.visitanteEquipo.id, nombre: p.visitanteEquipo.nombre },
-          cancha: p.cancha.nombre,
+          cancha: etiquetaCancha({
+            nombre: p.cancha.nombre,
+            sede: sedeNombre ? { nombre: sedeNombre } : null,
+          }),
           resultado: { local, visitante },
         };
       });
@@ -320,6 +472,7 @@ export async function ligaRoutes(app: FastifyInstance) {
         partidosClasificacion: config.partidosClasificacion ?? 20,
         tienePlayoffs: config.tienePlayoffs ?? true,
         temporadaInicio: config.temporadaInicio ?? null,
+        temporadaFin: config.temporadaFin ?? null,
         ramas: {
           varonil: config.ramas?.varonil ?? true,
           femenil: config.ramas?.femenil ?? true,
@@ -333,9 +486,13 @@ export async function ligaRoutes(app: FastifyInstance) {
         maxInvitadosPorPartido: config.maxInvitadosPorPartido ?? 3,
         permitirInvitadosSinCurp: config.permitirInvitadosSinCurp ?? true,
         periodoInscripcion: config.periodoInscripcion ?? { inicio: null, fin: null },
+        jornadaHorario: {
+          horaInicio: config.jornadaHorario?.horaInicio ?? '08:00',
+          horaFin: config.jornadaHorario?.horaFin ?? '14:00',
+        },
       };
 
-      return reply.send(withDefaults);
+      return reply.send(normalizarFechasReglasLiga(withDefaults));
     }
   );
 
@@ -356,9 +513,10 @@ export async function ligaRoutes(app: FastifyInstance) {
         return reply.status(404).send({ code: 'NOT_FOUND', message: 'Liga no encontrada' });
       }
 
+      const guardado = normalizarFechasReglasLiga(config);
       await prisma.liga.update({
         where: { id: ligaId },
-        data: { reglasConfig: JSON.stringify(config) },
+        data: { reglasConfig: JSON.stringify(guardado) },
       });
 
       return reply.status(204).send();

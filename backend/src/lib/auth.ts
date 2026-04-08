@@ -69,10 +69,17 @@ export async function ensureMembership(
   }
   if (req.isSuperAdmin) return;
 
-  const ligaId = (request.params as { id?: string }).id
-    || (request.query as { ligaId?: string }).ligaId
-    || (request.body as { ligaId?: string; localEquipoId?: string } | undefined)?.ligaId
-    || req.ligaId;
+  // Importante: NO asumir que `params.id` es `ligaId`.
+  // Muchas rutas usan `:id` para otras entidades (jugadorId, partidoId, etc.).
+  const params = request.params as Record<string, unknown> | undefined;
+  const query = request.query as Record<string, unknown> | undefined;
+  const body = request.body as Record<string, unknown> | undefined;
+
+  const ligaId =
+    (typeof params?.ligaId === 'string' ? (params.ligaId as string) : undefined) ||
+    (typeof query?.ligaId === 'string' ? (query.ligaId as string) : undefined) ||
+    (typeof body?.ligaId === 'string' ? (body.ligaId as string) : undefined) ||
+    req.ligaId;
 
   if (!ligaId) {
     await reply.status(400).send({ code: 'VALIDATION', message: 'ligaId es requerido' });

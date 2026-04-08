@@ -32,3 +32,24 @@ export function validarCurpBasica(curp: string): { ok: boolean; mensaje?: string
 
   return { ok: true };
 }
+
+export function datosDesdeCurp(curp: string): { sexo: 'H' | 'M'; fechaNacimiento: string; edad: number } {
+  const normalizada = curp.toUpperCase().trim();
+  const yy = normalizada.slice(4, 6);
+  const mm = normalizada.slice(6, 8);
+  const dd = normalizada.slice(8, 10);
+  const sexo = normalizada[10] as 'H' | 'M';
+
+  const año = Number(yy) >= 30 ? 1900 + Number(yy) : 2000 + Number(yy);
+  const fechaNacimiento = `${año.toString().padStart(4, '0')}-${mm}-${dd}`;
+
+  const hoy = new Date();
+  let edad = hoy.getFullYear() - año;
+  const mesActual = hoy.getMonth() + 1;
+  const diaActual = hoy.getDate();
+  if (mesActual < Number(mm) || (mesActual === Number(mm) && diaActual < Number(dd))) {
+    edad -= 1;
+  }
+
+  return { sexo, fechaNacimiento, edad };
+}

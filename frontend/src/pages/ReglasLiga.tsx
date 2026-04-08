@@ -2,6 +2,30 @@ import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import type { ReglasLigaConfig } from '@/lib/api';
 import { obtenerReglasLiga, guardarReglasLiga } from '@/lib/api';
+import { HourSelect, normalizeJornadaHour } from '@/components/ui/HourSelect';
+
+/** Fin de temporada sugerido: 1 partido por semana (domingos). `yyyy-MM-dd` en calendario local. */
+function sugerenciaFinTemporadaYmd(
+  temporadaInicio: string | null | undefined,
+  partidosClasificacion: number
+): string | null {
+  if (!temporadaInicio || partidosClasificacion <= 0) return null;
+  const raw = String(temporadaInicio).trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  const y = parseInt(m[1], 10);
+  const mo = parseInt(m[2], 10) - 1;
+  const d = parseInt(m[3], 10);
+  const inicio = new Date(y, mo, d);
+  if (Number.isNaN(inicio.getTime())) return null;
+  const semanas = Math.ceil(partidosClasificacion);
+  const fin = new Date(inicio);
+  fin.setDate(inicio.getDate() + 7 * (semanas - 1));
+  const yy = fin.getFullYear();
+  const mm = String(fin.getMonth() + 1).padStart(2, '0');
+  const dd = String(fin.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
 
 export default function ReglasLiga() {
   const liga = useAuthStore((s) => s.liga);
@@ -22,7 +46,19 @@ export default function ReglasLiga() {
       setError('');
       try {
         const cfg = await obtenerReglasLiga(ligaId);
-        if (!cancelled) setConfig(cfg);
+        if (!cancelled) {
+          const sug = sugerenciaFinTemporadaYmd(cfg.temporadaInicio, cfg.partidosClasificacion);
+          const temporadaFin =
+            cfg.temporadaFin && String(cfg.temporadaFin).trim() !== '' ? cfg.temporadaFin : sug ?? null;
+          setConfig({
+            ...cfg,
+            temporadaFin,
+            jornadaHorario: {
+              horaInicio: normalizeJornadaHour(cfg.jornadaHorario?.horaInicio, 8),
+              horaFin: normalizeJornadaHour(cfg.jornadaHorario?.horaFin, 14),
+            },
+          });
+        }
       } catch (e) {
         if (!cancelled) {
           console.error(e);
@@ -136,35 +172,87 @@ export default function ReglasLiga() {
               />
             </div>
           </div>
-          <div className="mt-2 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <input
-                id="tienePlayoffs"
-                type="checkbox"
-                checked={config.tienePlayoffs}
-                onChange={(e) => update({ tienePlayoffs: e.target.checked })}
-                className="rounded border-slate-600 bg-slate-700 text-primary-600"
-              />
-              <label htmlFor="tienePlayoffs" className="text-sm text-slate-300">
-                Usar torneo de playoffs para definir campeón
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <div>
+              <label htmlFor="jornada-hora-inicio" className="block text-sm text-slate-300 mb-1">
+                Inicio de jornada de juego
               </label>
+              <HourSelect
+                id="jornada-hora-inicio"
+                fallbackHour={8}
+                value={normalizeJornadaHour(config.jornadaHorario?.horaInicio, 8)}
+                onChange={(hhmm) =>
+                  setConfig((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          jornadaHorario: {
+                            ...prev.jornadaHorario,
+                            horaInicio: hhmm,
+                          },
+                        }
+                      : prev
+                  )
+                }
+              />
             </div>
-            {config.temporadaInicio && config.partidosClasificacion > 0 && (
-              <p className="text-xs text-slate-400">
-                Fin de temporada sugerido:{' '}
-                <span className="font-medium text-slate-200">
-                  {(() => {
-                    const inicio = new Date(config.temporadaInicio as string);
-                    if (Number.isNaN(inicio.getTime())) return '—';
-                    const semanas = Math.ceil(config.partidosClasificacion / 1); // 1 juego por semana (domingo)
-                    const fin = new Date(inicio);
-                    fin.setDate(inicio.getDate() + 7 * (semanas - 1));
-                    return fin.toISOString().slice(0, 10);
-                  })()}
-                </span>{' '}
-                (suponiendo 1 partido por semana, domingos).
+            <div>
+              <label htmlFor="jornada-hora-fin" className="block text-sm text-slate-300 mb-1">
+                Fin de jornada (último partido)
+              </label>
+              <HourSelect
+                id="jornada-hora-fin"
+                fallbackHour={14}
+                value={normalizeJornadaHour(config.jornadaHorario?.horaFin, 14)}
+                onChange={(hhmm) =>
+                  setConfig((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          jornadaHorario: {
+                            ...prev.jornadaHorario,
+                            horaFin: hhmm,
+                          },
+                        }
+                      : prev
+                  )
+                }
+              />
+            </div>
+          </div>
+          <p className="text-xs text-slate-400">
+            Solo horas en punto (00 min). El horario de fin es el tope para que el último partido del día pueda
+            jugarse (inicio o cierre dentro de la jornada, según acuerden en la liga).
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+            <div>
+              <label htmlFor="temporada-fin" className="block text-sm text-slate-300 mb-1">
+                Fin de temporada (último día)
+              </label>
+              <input
+                id="temporada-fin"
+                type="date"
+                value={config.temporadaFin ?? ''}
+                onChange={(e) => update({ temporadaFin: e.target.value || null })}
+                className="w-full max-w-xs rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
+              />
+              <p className="text-xs text-slate-400 mt-1">
+                La primera vez se rellena con la sugerencia (inicio + partidos de clasificación, 1 por semana,
+                domingos). Puedes cambiar la fecha y guardar.
               </p>
-            )}
+            </div>
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              id="tienePlayoffs"
+              type="checkbox"
+              checked={config.tienePlayoffs}
+              onChange={(e) => update({ tienePlayoffs: e.target.checked })}
+              className="rounded border-slate-600 bg-slate-700 text-primary-600"
+            />
+            <label htmlFor="tienePlayoffs" className="text-sm text-slate-300">
+              Usar torneo de playoffs para definir campeón
+            </label>
           </div>
         </section>
 

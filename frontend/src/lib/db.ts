@@ -67,6 +67,19 @@ export class CapturaDB extends Dexie {
       cierresPendientes: 'id, partidoId',
       session: 'key',
     });
+    this.version(3).stores({
+      ligas: 'id',
+      equipos: 'id, ligaId',
+      jugadores: 'id, equipoId',
+      canchas: 'id, ligaId, sedeId',
+      partidos: 'id, ligaId, fecha, estado',
+      plantilla: 'id, partidoId, equipoId, jugadorId',
+      eventos: 'id, partidoId, orden',
+      incidencias: 'id, partidoId',
+      fotosCierre: 'partidoId',
+      cierresPendientes: 'id, partidoId',
+      session: 'key',
+    });
   }
 }
 

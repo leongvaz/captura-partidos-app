@@ -80,6 +80,7 @@ export async function authRoutes(app: FastifyInstance) {
       roles,
       isSuperAdmin: usuarioEncontrado.isSuperAdmin,
       activo: true,
+      curp: (usuarioEncontrado as any).curp ?? null,
     };
 
     return reply.send({ token, usuario: usuarioJson, liga: ligaJson });
@@ -196,6 +197,7 @@ export async function authRoutes(app: FastifyInstance) {
       roles: [rol],
       isSuperAdmin: usuario.isSuperAdmin,
       activo: true,
+      curp: usuario.curp,
     };
 
     return reply.send({ token, usuario: usuarioJson, liga: ligaJson });
@@ -300,6 +302,7 @@ export async function authRoutes(app: FastifyInstance) {
       roles,
       isSuperAdmin: usuario.isSuperAdmin,
       activo: usuario.activo,
+      curp: usuario.curp,
     };
 
     return reply.send({ token, usuario: usuarioJson, liga: ligaJson });

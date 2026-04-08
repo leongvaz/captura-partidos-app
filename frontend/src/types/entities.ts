@@ -28,6 +28,7 @@ export interface Liga {
   nombre: string;
   temporada: string;
   categorias: string[];
+  deporte?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -41,6 +42,7 @@ export interface Usuario {
   activo: boolean;
   createdAt?: string;
   updatedAt?: string;
+  curp?: string | null;
 }
 
 export interface Equipo {
@@ -68,7 +70,11 @@ export interface Jugador {
 export interface Cancha {
   id: string;
   ligaId: string;
+  sedeId?: string | null;
   nombre: string;
+  /** Para UI offline si el API lo envía */
+  nombreCompleto?: string;
+  sedeNombre?: string | null;
   activo: boolean;
   createdAt?: string;
   updatedAt?: string;

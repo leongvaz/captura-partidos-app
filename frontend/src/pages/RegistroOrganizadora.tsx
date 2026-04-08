@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { registrarOrganizador } from '@/lib/api';
+import { registrarOrganizador, obtenerLigaPublica } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
+import { AppPage, PageHeader, SectionCard } from '@/components/ui/Page';
+import { FormField, TextInput } from '@/components/ui/Form';
+import { Button } from '@/components/ui/Button';
 
 function normalizarNombrePropio(valor: string): string {
   if (!valor) return '';
@@ -30,6 +33,10 @@ export default function RegistroOrganizadora() {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [ligaNombre, setLigaNombre] = useState<string | null>(null);
+  const [ligaTemporada, setLigaTemporada] = useState<string | null>(null);
+  const [ligaCargando, setLigaCargando] = useState(false);
+  const [ligaError, setLigaError] = useState<string | null>(null);
 
   // Si ya hay sesión iniciada, no tiene sentido mostrar de nuevo el registro de organizador.
   useEffect(() => {
@@ -37,6 +44,38 @@ export default function RegistroOrganizadora() {
       navigate('/', { replace: true });
     }
   }, [token, navigate]);
+
+  useEffect(() => {
+    if (!ligaId) {
+      setLigaNombre(null);
+      setLigaTemporada(null);
+      setLigaError(null);
+      return;
+    }
+    let cancelled = false;
+    setLigaCargando(true);
+    setLigaError(null);
+    obtenerLigaPublica(ligaId)
+      .then((l) => {
+        if (!cancelled) {
+          setLigaNombre(l.nombre);
+          setLigaTemporada(l.temporada);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLigaNombre(null);
+          setLigaTemporada(null);
+          setLigaError('No se encontró la liga con este enlace. Verifica el link o contacta a quien te lo envió.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLigaCargando(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ligaId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,113 +108,112 @@ export default function RegistroOrganizadora() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-slate-900">
-      <div className="w-full max-w-md rounded-xl bg-slate-800 p-6 shadow-xl border border-slate-700">
-        <h1 className="text-2xl font-bold text-slate-100 text-center mb-1">
-          Registro de organizador/a
-        </h1>
-        <p className="text-slate-400 text-sm text-center mb-4">
-          Completa tus datos para administrar la liga.
-        </p>
-        {!ligaId && (
-          <p className="text-red-400 text-sm mb-4">
-            Este link no tiene un <code className="bg-slate-700 px-1 rounded">ligaId</code> válido.
-          </p>
-        )}
-        {ligaId && (
-          <p className="text-xs text-slate-500 mb-4 text-center">
-            Liga ID: <code className="bg-slate-700 px-1 rounded">{ligaId}</code>
-          </p>
-        )}
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Nombre(s)</label>
-              <input
-                type="text"
-                value={nombres}
-                onChange={(e) => setNombres(e.target.value)}
-                className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
+    <div className="min-h-screen flex flex-col justify-center bg-slate-900">
+      <AppPage maxWidth="md">
+        <PageHeader
+          title="Registro de organizador/a"
+          subtitle="Crea tu cuenta para administrar la liga."
+        />
+        <SectionCard>
+          {!ligaId && (
+            <p className="text-red-400 text-sm mb-3">
+              Este link no tiene un <code className="bg-slate-700 px-1 rounded">ligaId</code> válido.
+            </p>
+          )}
+          {ligaId && ligaCargando && (
+            <p className="text-sm text-slate-400 mb-3">Cargando datos de la liga…</p>
+          )}
+          {ligaId && ligaError && (
+            <p className="text-sm text-amber-400 mb-3">{ligaError}</p>
+          )}
+          {ligaId && !ligaCargando && ligaNombre && (
+            <div className="mb-4 rounded-lg border border-slate-600 bg-slate-800/60 px-3 py-2">
+              <p className="text-xs text-slate-500 uppercase tracking-wide">Liga</p>
+              <p className="text-base font-semibold text-slate-100">{ligaNombre}</p>
+              {ligaTemporada && (
+                <p className="text-sm text-slate-400 mt-0.5">Temporada: {ligaTemporada}</p>
+              )}
+            </div>
+          )}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <FormField label="Nombre(s)">
+                <TextInput
+                  type="text"
+                  value={nombres}
+                  onChange={(e) => setNombres(e.target.value)}
+                  required
+                />
+              </FormField>
+              <FormField label="Apellido paterno">
+                <TextInput
+                  type="text"
+                  value={apellidoPaterno}
+                  onChange={(e) => setApellidoPaterno(e.target.value)}
+                  required
+                />
+              </FormField>
+              <FormField label="Apellido materno">
+                <TextInput
+                  type="text"
+                  value={apellidoMaterno}
+                  onChange={(e) => setApellidoMaterno(e.target.value)}
+                />
+              </FormField>
+              <FormField label="CURP">
+                <TextInput
+                  type="text"
+                  value={curp}
+                  onChange={(e) => setCurp(e.target.value.toUpperCase())}
+                  placeholder="CURP completa"
+                  required
+                />
+              </FormField>
+            </div>
+            <FormField label="Correo electrónico">
+              <TextInput
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 required
               />
+            </FormField>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <FormField label="Contraseña">
+                <TextInput
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </FormField>
+              <FormField label="PIN rápido">
+                <TextInput
+                  type="password"
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value)}
+                  placeholder="4-6 dígitos para acceso rápido"
+                  required
+                />
+              </FormField>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">
-                Apellido paterno
-              </label>
-              <input
-                type="text"
-                value={apellidoPaterno}
-                onChange={(e) => setApellidoPaterno(e.target.value)}
-                className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">
-                Apellido materno
-              </label>
-              <input
-                type="text"
-                value={apellidoMaterno}
-                onChange={(e) => setApellidoMaterno(e.target.value)}
-                className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">CURP</label>
-              <input
-                type="text"
-                value={curp}
-                onChange={(e) => setCurp(e.target.value.toUpperCase())}
-                className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
-                placeholder="CURP completa"
-                required
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Correo electrónico</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
-              required
-            />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Contraseña</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">PIN rápido</label>
-              <input
-                type="password"
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                className="w-full rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-3 py-2 text-sm"
-                placeholder="4-6 dígitos para acceso rápido"
-                required
-              />
-            </div>
-          </div>
-          {error && <p className="text-red-400 text-sm">{error}</p>}
-          <button
-            type="submit"
-            disabled={loading || !ligaId}
-            className="w-full rounded-lg bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 px-4 disabled:opacity-50 mt-2"
-          >
-            {loading ? 'Registrando...' : 'Crear cuenta y entrar'}
-          </button>
-        </form>
+            {error && <p className="text-red-400 text-sm">{error}</p>}
+            <Button
+              type="submit"
+              disabled={
+                loading ||
+                !ligaId ||
+                !!ligaError ||
+                ligaCargando ||
+                (ligaId && !ligaNombre)
+              }
+              size="lg"
+              className="w-full mt-1"
+            >
+              {loading ? 'Registrando...' : 'Crear cuenta y entrar'}
+            </Button>
+          </form>
+        </SectionCard>
         <button
           type="button"
           onClick={() => navigate('/login')}
@@ -183,7 +221,7 @@ export default function RegistroOrganizadora() {
         >
           Ir al inicio de sesión
         </button>
-      </div>
+      </AppPage>
     </div>
   );
 }

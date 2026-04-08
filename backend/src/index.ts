@@ -9,8 +9,10 @@ import { ligasRoutes } from './routes/ligas.js';
 import { equiposRoutes } from './routes/equipos.js';
 import { jugadoresRoutes } from './routes/jugadores.js';
 import { canchasRoutes } from './routes/canchas.js';
+import { sedesRoutes } from './routes/sedes.js';
 import { partidosRoutes } from './routes/partidos.js';
 import { ligaRoutes } from './routes/liga.js';
+import { personasRoutes } from './routes/personas.js';
 import { authMiddleware } from './lib/auth.js';
 
 const app = Fastify({ logger: true });
@@ -28,8 +30,10 @@ app.register(ligasRoutes, { prefix: '/api/v1' });
 app.register(equiposRoutes, { prefix: '/api/v1' });
 app.register(jugadoresRoutes, { prefix: '/api/v1' });
 app.register(canchasRoutes, { prefix: '/api/v1' });
+app.register(sedesRoutes, { prefix: '/api/v1' });
 app.register(partidosRoutes, { prefix: '/api/v1' });
 app.register(ligaRoutes, { prefix: '/api/v1' });
+app.register(personasRoutes, { prefix: '/api/v1' });
 
 const port = Number(process.env.PORT) || 3001;
 try {

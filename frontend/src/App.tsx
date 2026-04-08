@@ -15,7 +15,10 @@ import Resumen from '@/pages/Resumen';
 import Acta from '@/pages/Acta';
 import PanelLiga from '@/pages/PanelLiga';
 import PanelSuperAdmin from '@/pages/PanelSuperAdmin';
+import SuperAdminLigaDetalle from '@/pages/SuperAdminLigaDetalle';
+import SuperAdminEquipoDetalle from '@/pages/SuperAdminEquipoDetalle';
 import JugadoresEquipo from '@/pages/JugadoresEquipo';
+import SedesCanchas from '@/pages/SedesCanchas';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -44,6 +47,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/sedes_canchas" element={<Navigate to="/sedes-canchas" replace />} />
       <Route path="/registro-organizadora" element={<RegistroOrganizadora />} />
       <Route path="/registro-equipo" element={<RegistroEquipo />} />
       <Route
@@ -78,7 +82,13 @@ export default function App() {
         <Route path="partido/:partidoId/resumen" element={<Resumen />} />
         <Route path="partido/:partidoId/acta" element={<Acta />} />
         <Route path="panel" element={<PanelLiga />} />
+        <Route path="sedes-canchas" element={<SedesCanchas />} />
         <Route path="superadmin" element={<PanelSuperAdmin />} />
+        <Route path="superadmin/liga/:ligaId" element={<SuperAdminLigaDetalle />} />
+        <Route
+          path="superadmin/liga/:ligaId/equipo/:equipoId"
+          element={<SuperAdminEquipoDetalle />}
+        />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
