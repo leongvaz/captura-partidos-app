@@ -7,9 +7,11 @@ import {
   actualizarJugador,
   eliminarJugador,
   listarMisEquipos,
+  obtenerEquipo,
   type Jugador,
   type Equipo,
 } from '@/lib/api';
+import { JugadorRow } from '@/components/jugadores/JugadorRow';
 
 function normalizarNombrePropio(valor: string): string {
   if (!valor) return '';
@@ -48,7 +50,9 @@ function formatearCategoria(categoriaCruda: string | undefined | null): string {
 export default function JugadoresEquipo() {
   const { equipoId } = useParams<{ equipoId: string }>();
   const usuario = useAuthStore((s) => s.usuario);
-  const hasRole = useAuthStore((s) => s.hasRole);
+  const isAdminLiga = useAuthStore((s) => s.hasRole('admin_liga'));
+  const isCapitan = useAuthStore((s) => s.hasRole('capturista_roster'));
+  const ligaIdStore = useAuthStore((s) => s.liga?.id);
   const navigate = useNavigate();
 
   const [equipo, setEquipo] = useState<Equipo | null>(null);
@@ -64,11 +68,12 @@ export default function JugadoresEquipo() {
   const [curp, setCurp] = useState('');
   const [fotoFile, setFotoFile] = useState<File | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [openSwipeJugadorId, setOpenSwipeJugadorId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!equipoId) return;
-    if (!usuario || !hasRole('capturista_roster')) {
-      setError('Solo los capitanes pueden gestionar jugadores de su equipo.');
+    if (!usuario || (!isAdminLiga && !isCapitan)) {
+      setError('Solo el administrador de la liga o el capitán pueden gestionar jugadores.');
       setLoading(false);
       return;
     }
@@ -78,20 +83,27 @@ export default function JugadoresEquipo() {
       try {
         setLoading(true);
         setError(null);
-        const [misEquipos, js] = await Promise.all([
-          listarMisEquipos(),
-          listarJugadores(equipoId),
-        ]);
+        const eq = await obtenerEquipo(equipoId);
         if (cancelled) return;
-        const eq = misEquipos.find((e) => e.id === equipoId) || null;
-        if (!eq) {
-          setError('Este equipo no pertenece a tu cuenta de capitán.');
+        if (eq.ligaId !== ligaIdStore) {
+          setError('Este equipo no pertenece a tu liga.');
           setEquipo(null);
           setJugadores([]);
           return;
         }
+        if (!isAdminLiga) {
+          const misEquipos = await listarMisEquipos();
+          if (cancelled) return;
+          if (!misEquipos.find((e) => e.id === equipoId)) {
+            setError('Este equipo no pertenece a tu cuenta de capitán.');
+            setEquipo(null);
+            setJugadores([]);
+            return;
+          }
+        }
         setEquipo(eq);
-        setJugadores(js);
+        const js = await listarJugadores(equipoId);
+        if (!cancelled) setJugadores(js);
       } catch (e: any) {
         if (!cancelled) {
           console.error(e);
@@ -105,7 +117,7 @@ export default function JugadoresEquipo() {
     return () => {
       cancelled = true;
     };
-  }, [equipoId, usuario, hasRole]);
+  }, [equipoId, usuario, isAdminLiga, isCapitan, ligaIdStore]);
 
   if (!equipoId) {
     return <div className="p-4 text-slate-400">Falta el identificador del equipo.</div>;
@@ -177,10 +189,10 @@ export default function JugadoresEquipo() {
         <h1 className="text-2xl font-bold text-slate-100">Jugadores del equipo</h1>
         <button
           type="button"
-          onClick={() => navigate('/panel-equipo')}
+          onClick={() => navigate(isAdminLiga ? '/administrar-equipos' : '/panel-equipo')}
           className="text-sm text-slate-300 hover:text-white px-3 py-1 rounded border border-slate-600"
         >
-          Volver al panel de capitán
+          {isAdminLiga ? 'Volver a administrar equipos' : 'Volver al panel de capitán'}
         </button>
       </div>
       {equipo && (
@@ -289,73 +301,58 @@ export default function JugadoresEquipo() {
             {jugadores.length === 0 ? (
               <p className="text-slate-400 text-sm">Todavía no hay jugadores registrados.</p>
             ) : (
-              <div className="space-y-1">
-                {jugadores.map((j) => (
-                  <div
-                    key={j.id}
-                    className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 hover:bg-slate-800/80 transition-colors"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-800 text-xs font-semibold text-slate-100 border border-slate-700">
-                        {j.numero}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium text-slate-100 truncate">
-                          {j.nombre} {j.apellido}
-                        </div>
-                        {j.curp && (
-                          <div className="text-[11px] text-slate-500 font-mono truncate">
-                            {j.curp}
-                          </div>
-                        )}
-                      </div>
+              <div className="space-y-2">
+                {jugadores.map((j) =>
+                  editingId === j.id ? (
+                    <div
+                      key={j.id}
+                      className="rounded-xl border border-amber-700/35 bg-amber-950/25 px-3 py-2 text-xs text-amber-100/95"
+                    >
+                      Editando en el formulario superior…
                     </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingId(j.id);
-                          setNombre(j.nombre);
-                          const partesApellido = j.apellido.split(' ');
-                          setApellidoPaterno(partesApellido[0] ?? '');
-                          setApellidoMaterno(partesApellido.slice(1).join(' '));
-                          setNumero(String(j.numero));
-                          setCurp(j.curp ?? '');
-                        }}
-                        className="inline-flex items-center justify-center rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-700 hover:border-slate-500 transition-colors"
-                        title="Editar jugador"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!window.confirm(`¿Eliminar a ${j.nombre}?`)) return;
-                          try {
-                            await eliminarJugador(j.id);
-                            const actualizados = await listarJugadores(equipoId);
-                            setJugadores(actualizados);
-                            if (editingId === j.id) {
-                              setEditingId(null);
-                              setNombre('');
-                              setApellidoPaterno('');
-                              setApellidoMaterno('');
-                              setNumero('');
-                              setCurp('');
-                            }
-                          } catch (e: any) {
-                            console.error(e);
-                            setError(e?.message || 'No se pudo eliminar al jugador.');
+                  ) : (
+                    <JugadorRow
+                      key={j.id}
+                      jugadorId={j.id}
+                      numero={j.numero}
+                      nombre={j.nombre}
+                      apellido={j.apellido}
+                      curp={j.curp}
+                      openSwipeId={openSwipeJugadorId}
+                      onOpenSwipeId={setOpenSwipeJugadorId}
+                      onEdit={() => {
+                        setOpenSwipeJugadorId(null);
+                        setEditingId(j.id);
+                        setNombre(j.nombre);
+                        const partesApellido = j.apellido.split(' ');
+                        setApellidoPaterno(partesApellido[0] ?? '');
+                        setApellidoMaterno(partesApellido.slice(1).join(' '));
+                        setNumero(String(j.numero));
+                        setCurp(j.curp ?? '');
+                      }}
+                      onDelete={async () => {
+                        if (!window.confirm(`¿Eliminar a ${j.nombre}?`)) return;
+                        try {
+                          setOpenSwipeJugadorId(null);
+                          await eliminarJugador(j.id);
+                          const actualizados = await listarJugadores(equipoId || '');
+                          setJugadores(actualizados);
+                          if (editingId === j.id) {
+                            setEditingId(null);
+                            setNombre('');
+                            setApellidoPaterno('');
+                            setApellidoMaterno('');
+                            setNumero('');
+                            setCurp('');
                           }
-                        }}
-                        className="inline-flex items-center justify-center rounded-md border border-slate-600 bg-slate-900 px-2 py-1 text-[11px] text-red-300 hover:bg-red-900/30 hover:border-red-700 hover:text-red-200 transition-colors"
-                        title="Eliminar jugador"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                        } catch (e: any) {
+                          console.error(e);
+                          setError(e?.message || 'No se pudo eliminar al jugador.');
+                        }
+                      }}
+                    />
+                  )
+                )}
               </div>
             )}
           </section>

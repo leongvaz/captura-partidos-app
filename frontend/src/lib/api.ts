@@ -213,6 +213,22 @@ export async function listarMisEquipos(): Promise<Equipo[]> {
   return api<Equipo[]>('/equipos/mis');
 }
 
+export async function listarEquiposLiga(ligaId: string): Promise<Equipo[]> {
+  return api<Equipo[]>(`/equipos?ligaId=${encodeURIComponent(ligaId)}`);
+}
+
+export async function obtenerEquipo(equipoId: string): Promise<Equipo> {
+  return api<Equipo>(`/equipos/${equipoId}`);
+}
+
+export async function actualizarEquipoLiga(equipoId: string, data: { nombre: string }): Promise<Equipo> {
+  return api<Equipo>(`/equipos/${equipoId}`, { method: 'PUT', body: data });
+}
+
+export async function eliminarEquipoLiga(equipoId: string): Promise<Equipo> {
+  return api<Equipo>(`/equipos/${equipoId}`, { method: 'DELETE' });
+}
+
 export interface Jugador {
   id: string;
   equipoId: string;

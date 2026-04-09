@@ -6,7 +6,7 @@ import Login from '@/pages/Login';
 import RegistroOrganizadora from '@/pages/RegistroOrganizadora';
 import PartidosList from '@/pages/PartidosList';
 import ReglasLiga from '@/pages/ReglasLiga';
-import InvitacionesEquipos from '@/pages/InvitacionesEquipos';
+import AdministrarEquipos from '@/pages/AdministrarEquipos';
 import RegistroEquipo from '@/pages/RegistroEquipo';
 import PanelEquipo from '@/pages/PanelEquipo';
 import ConfigMesa from '@/pages/ConfigMesa';
@@ -60,7 +60,8 @@ export default function App() {
       >
         <Route index element={<PartidosList />} />
         <Route path="reglas-liga" element={<ReglasLiga />} />
-        <Route path="invitaciones-equipos" element={<InvitacionesEquipos />} />
+        <Route path="administrar-equipos" element={<AdministrarEquipos />} />
+        <Route path="invitaciones-equipos" element={<AdministrarEquipos />} />
         <Route path="panel-equipo" element={<PanelEquipo />} />
         <Route path="equipo/:equipoId/jugadores" element={<JugadoresEquipo />} />
         <Route

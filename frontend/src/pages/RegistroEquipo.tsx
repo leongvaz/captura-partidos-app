@@ -80,15 +80,24 @@ export default function RegistroEquipo() {
         const cfg = await obtenerReglasLiga(ligaIdQuery);
         if (!cancelled) {
           setConfig(cfg);
-          // Seleccionar por defecto la primera rama activa
           const ramasDisponibles = (['varonil', 'femenil', 'mixta', 'veteranos', 'infantil'] as const).filter(
             (r) => cfg.ramas[r]
           );
-          if (ramasDisponibles.length) {
-            setRama(ramasDisponibles[0]);
-            const fuerzas = cfg.fuerzasPorRama[ramasDisponibles[0]] || [];
-            if (fuerzas.length) setFuerza(fuerzas[0]);
+          const ramaParam = searchParams.get('rama');
+          const fuerzaParam = searchParams.get('fuerza');
+          let rSel = ramasDisponibles[0] || '';
+          let fSel = '';
+          if (ramaParam && cfg.ramas[ramaParam as keyof typeof cfg.ramas] && ramasDisponibles.includes(ramaParam as (typeof ramasDisponibles)[number])) {
+            rSel = ramaParam as (typeof ramasDisponibles)[number];
+            const fu = cfg.fuerzasPorRama[rSel] || [];
+            if (fuerzaParam && fu.includes(fuerzaParam)) fSel = fuerzaParam;
+            else if (fu.length) fSel = fu[0];
+          } else if (ramasDisponibles.length) {
+            const fu = cfg.fuerzasPorRama[ramasDisponibles[0]] || [];
+            if (fu.length) fSel = fu[0];
           }
+          setRama(rSel);
+          setFuerza(fSel);
         }
       } catch (e) {
         console.error(e);
@@ -100,7 +109,7 @@ export default function RegistroEquipo() {
     return () => {
       cancelled = true;
     };
-  }, [ligaIdQuery, usuario]);
+  }, [ligaIdQuery, usuario, searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

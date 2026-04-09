@@ -145,10 +145,10 @@ export default function PartidosList() {
           </button>
           <button
             type="button"
-            onClick={() => navigate('/invitaciones-equipos')}
+            onClick={() => navigate('/administrar-equipos')}
             className="rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 text-sm px-3 py-2 flex-1 text-center"
           >
-            Invitación a equipos
+            Administrar equipos
           </button>
         </div>
       )}

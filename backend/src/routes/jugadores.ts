@@ -1,6 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { requireRole, ensureMembership, type AuthRequest } from '../lib/auth.js';
+
+function puedeGestionarEquipo(
+  req: AuthRequest,
+  equipo: { ligaId: string; duenoId: string | null }
+): boolean {
+  if (equipo.ligaId !== req.ligaId) return false;
+  if (req.roles?.includes('admin_liga')) return true;
+  if (req.roles?.includes('capturista_roster') && equipo.duenoId === req.usuarioId) return true;
+  return false;
+}
 import { ROLES_LECTURA_ROSTER } from '../lib/rbac.js';
 import { validarCurpBasica, datosDesdeCurp } from '../lib/curp.js';
 import { ensurePersonaPorCurp } from '../lib/persona.js';
@@ -163,7 +173,7 @@ export async function jugadoresRoutes(app: FastifyInstance) {
     };
   }>(
     '/jugadores',
-    { preHandler: [app.authenticate, ensureMembership, requireRole('capturista_roster')] },
+    { preHandler: [app.authenticate, ensureMembership, requireRole('admin_liga', 'capturista_roster')] },
     async (request, reply) => {
       const req = request as AuthRequest;
       const { equipoId, nombre, apellidoPaterno, apellidoMaterno, numero, curp } = request.body || {};
@@ -183,7 +193,7 @@ export async function jugadoresRoutes(app: FastifyInstance) {
       }
 
       const equipo = await prisma.equipo.findUnique({ where: { id: equipoId } });
-      if (!equipo || equipo.ligaId !== req.ligaId || equipo.duenoId !== req.usuarioId) {
+      if (!equipo || !puedeGestionarEquipo(req, equipo)) {
         return reply.status(403).send({
           code: 'FORBIDDEN',
           message: 'No puedes registrar jugadores en este equipo',
@@ -362,7 +372,7 @@ export async function jugadoresRoutes(app: FastifyInstance) {
     Body: { nombre: string; apellidoPaterno: string; apellidoMaterno?: string; numero: number };
   }>(
     '/jugadores/:id',
-    { preHandler: [app.authenticate, ensureMembership, requireRole('capturista_roster')] },
+    { preHandler: [app.authenticate, ensureMembership, requireRole('admin_liga', 'capturista_roster')] },
     async (request, reply) => {
       const req = request as AuthRequest;
       const { id } = request.params;
@@ -376,7 +386,7 @@ export async function jugadoresRoutes(app: FastifyInstance) {
       }
 
       const jugador = await prisma.jugador.findUnique({ where: { id }, include: { equipo: true } });
-      if (!jugador || !jugador.equipo || jugador.equipo.ligaId !== req.ligaId || jugador.equipo.duenoId !== req.usuarioId) {
+      if (!jugador || !jugador.equipo || !puedeGestionarEquipo(req, jugador.equipo)) {
         return reply.status(403).send({
           code: 'FORBIDDEN',
           message: 'No puedes editar jugadores de este equipo',
@@ -431,13 +441,13 @@ export async function jugadoresRoutes(app: FastifyInstance) {
   // Eliminación (baja lógica) de jugador por capitán
   app.delete<{ Params: { id: string } }>(
     '/jugadores/:id',
-    { preHandler: [app.authenticate, ensureMembership, requireRole('capturista_roster')] },
+    { preHandler: [app.authenticate, ensureMembership, requireRole('admin_liga', 'capturista_roster')] },
     async (request, reply) => {
       const req = request as AuthRequest;
       const { id } = request.params;
 
       const jugador = await prisma.jugador.findUnique({ where: { id }, include: { equipo: true } });
-      if (!jugador || !jugador.equipo || jugador.equipo.ligaId !== req.ligaId || jugador.equipo.duenoId !== req.usuarioId) {
+      if (!jugador || !jugador.equipo || !puedeGestionarEquipo(req, jugador.equipo)) {
         return reply.status(403).send({
           code: 'FORBIDDEN',
           message: 'No puedes eliminar jugadores de este equipo',

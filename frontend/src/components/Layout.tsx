@@ -134,6 +134,16 @@ export default function Layout() {
                   >
                     Sedes y canchas
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigate('/administrar-equipos');
+                      setMenuAbierto(false);
+                    }}
+                    className={navBtn(path === '/administrar-equipos')}
+                  >
+                    Administrar equipos
+                  </button>
                 </>
               )}
               {hasRole('capturista_roster') && (

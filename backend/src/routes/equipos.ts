@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
-import { authMiddleware, requireRole, ensureMembership, type AuthRequest } from '../lib/auth.js';
+import { requireRole, ensureMembership, type AuthRequest } from '../lib/auth.js';
 import { ROLES_LECTURA_ROSTER } from '../lib/rbac.js';
 
 export async function equiposRoutes(app: FastifyInstance) {
@@ -182,4 +182,61 @@ export async function equiposRoutes(app: FastifyInstance) {
       updatedAt: equipo.updatedAt.toISOString(),
     });
   });
+
+  app.put<{ Params: { id: string }; Body: { nombre?: string } }>(
+    '/equipos/:id',
+    { preHandler: [app.authenticate, ensureMembership, requireRole('admin_liga')] },
+    async (request, reply) => {
+      const req = request as AuthRequest;
+      const { id } = request.params;
+      const { nombre } = request.body || {};
+      const nombreTrim = (nombre || '').trim();
+      if (!nombreTrim) {
+        return reply.status(400).send({ code: 'VALIDATION', message: 'nombre es requerido' });
+      }
+      const equipo = await prisma.equipo.findUnique({ where: { id } });
+      if (!equipo || equipo.ligaId !== req.ligaId) {
+        return reply.status(403).send({ code: 'FORBIDDEN', message: 'No autorizado' });
+      }
+      const updated = await prisma.equipo.update({
+        where: { id },
+        data: { nombre: nombreTrim },
+      });
+      return reply.send({
+        id: updated.id,
+        ligaId: updated.ligaId,
+        nombre: updated.nombre,
+        categoria: updated.categoria,
+        activo: updated.activo,
+        createdAt: updated.createdAt.toISOString(),
+        updatedAt: updated.updatedAt.toISOString(),
+      });
+    }
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    '/equipos/:id',
+    { preHandler: [app.authenticate, ensureMembership, requireRole('admin_liga')] },
+    async (request, reply) => {
+      const req = request as AuthRequest;
+      const { id } = request.params;
+      const equipo = await prisma.equipo.findUnique({ where: { id } });
+      if (!equipo || equipo.ligaId !== req.ligaId) {
+        return reply.status(403).send({ code: 'FORBIDDEN', message: 'No autorizado' });
+      }
+      const updated = await prisma.equipo.update({
+        where: { id },
+        data: { activo: false },
+      });
+      return reply.send({
+        id: updated.id,
+        ligaId: updated.ligaId,
+        nombre: updated.nombre,
+        categoria: updated.categoria,
+        activo: updated.activo,
+        createdAt: updated.createdAt.toISOString(),
+        updatedAt: updated.updatedAt.toISOString(),
+      });
+    }
+  );
 }
