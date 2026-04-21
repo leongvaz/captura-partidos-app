@@ -50,37 +50,6 @@ export default function PartidosList() {
     return () => { cancelled = true; };
   }, [ligaId, fecha]);
 
-  const crearPartido = async () => {
-    if (!ligaId) return;
-    const equipos = await db.equipos.where('ligaId').equals(ligaId).toArray();
-    const canchas = await db.canchas.where('ligaId').equals(ligaId).toArray();
-    if (equipos.length < 2 || !canchas.length) {
-      alert('Necesitas al menos 2 equipos y 1 cancha. Configura la liga.');
-      return;
-    }
-    const id = crypto.randomUUID();
-    const usuarioId = useAuthStore.getState().usuario?.id;
-    const partido: PartidoLocal = {
-      id,
-      ligaId,
-      localEquipoId: equipos[0].id,
-      visitanteEquipoId: equipos[1].id,
-      canchaId: canchas[0].id,
-      categoria: equipos[0].categoria,
-      fecha,
-      horaInicio: '10:00',
-      estado: 'programado',
-      anotadorId: usuarioId || '',
-      localVersion: 1,
-      serverVersion: 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      synced: false,
-    };
-    await db.partidos.add(partido);
-    setPartidos((prev) => [...prev, partido]);
-  };
-
   const confirmarDefault = async () => {
     if (!modalDefault || !modalGanador) return;
     setRegistrandoDefault(true);
@@ -152,14 +121,13 @@ export default function PartidosList() {
           </button>
         </div>
       )}
-      {/* Botón de crear partido oculto por ahora (se conserva la lógica) */}
-      {false && canWritePartido && (
+      {canWritePartido && (
         <button
           type="button"
-          onClick={crearPartido}
+          onClick={() => navigate(`/pruebas/alta-partido?fecha=${encodeURIComponent(fecha)}`)}
           className="w-full rounded-lg bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 mb-4"
         >
-          + Nuevo partido
+          + Nuevo partido (pruebas)
         </button>
       )}
       {loading ? (

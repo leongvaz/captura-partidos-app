@@ -2,8 +2,8 @@
 
 ## Requisitos
 
-- Node.js 18+
-- npm o pnpm
+- Node.js **18+** (Vite 5 requiere Node 18+)
+- npm (o pnpm/yarn)
 
 ## Backend (API)
 
@@ -19,6 +19,8 @@ npm run db:seed
 npm run dev
 ```
 
+La API queda en `http://localhost:3001/api/v1`.
+
 ### Migración RBAC (si ya tenías DB con Usuario.ligaId)
 
 1. **Backup** de `prisma/dev.db` (o el archivo en `DATABASE_URL`).
@@ -32,8 +34,6 @@ npm run dev
    ```
 4. Reiniciar el servidor.
 
-La API quedará en **http://localhost:3001**.
-
 - **Seed:** Liga demo `00000000-0000-0000-0000-000000000001`, usuario anotador con **PIN 1234**, rol `anotador_partido`.
 
 ## Frontend (PWA)
@@ -45,6 +45,24 @@ npm run dev
 ```
 
 La app quedará en **http://localhost:5173** con proxy a la API en `/api`.
+
+## Notas para Windows (PowerShell)
+
+### Reinstalación limpia de dependencias
+
+En `frontend` o `backend` (según aplique):
+
+```powershell
+Remove-Item -Recurse -Force .\node_modules -ErrorAction SilentlyContinue
+Remove-Item -Force .\package-lock.json -ErrorAction SilentlyContinue
+npm install
+```
+
+### Error 401 / “Token inválido” en dev
+
+Si te logueaste contra un backend distinto (p. ej. Render) y luego cambiaste a backend local (proxy a `127.0.0.1:3001`), el token puede fallar por `JWT_SECRET` distinto.
+
+- Solución rápida: borrar `localStorage` (`token`, `usuario`, `liga`) y volver a iniciar sesión.
 
 ## Uso rápido
 

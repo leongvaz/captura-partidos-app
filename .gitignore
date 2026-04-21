@@ -45,3 +45,6 @@ captures/
 tmp/
 temp/
 *.tmp
+
+# Credenciales locales (dev)
+ACCESOS_DEV.md

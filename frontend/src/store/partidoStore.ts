@@ -191,6 +191,7 @@ export const usePartidoStore = create<PartidoState>((set, get) => ({
     if (!partidoActual || !jugadorSeleccionadoId) return;
     const orden = ordenContador;
     const { cuartoActual, segundosRestantesCuarto, tiempoPartidoSegundos } = getCronoSnapshot();
+    const isTest = Boolean((partidoActual as PartidoLocal | null)?.isTest);
     const ev: EventoLocal = {
       id: uuidv4(),
       partidoId: partidoActual.id,
@@ -202,12 +203,13 @@ export const usePartidoStore = create<PartidoState>((set, get) => ({
       orden,
       createdAt: new Date().toISOString(),
       synced: false,
+      isTest,
       segundosRestantesCuarto,
       tiempoPartidoSegundos,
     };
     await db.eventos.add(ev);
     set({ eventos: [...eventos, ev], ordenContador: orden + 1 });
-    useSyncStore.getState().runSync().catch(() => {});
+    if (!isTest) useSyncStore.getState().runSync().catch(() => {});
   },
   deshacerUltimoEvento: async () => {
     const { eventos, partidoActual } = get();
@@ -215,7 +217,8 @@ export const usePartidoStore = create<PartidoState>((set, get) => ({
     const last = eventos[eventos.length - 1];
     await db.eventos.delete(last.id);
     set({ eventos: eventos.slice(0, -1), ordenContador: get().ordenContador - 1 });
-    useSyncStore.getState().runSync().catch(() => {});
+    const isTest = Boolean((partidoActual as PartidoLocal | null)?.isTest);
+    if (!isTest) useSyncStore.getState().runSync().catch(() => {});
   },
   getJugadoresEnCancha: (equipoId) => {
     const { plantilla, eventos } = get();

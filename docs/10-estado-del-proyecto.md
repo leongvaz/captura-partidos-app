@@ -1,7 +1,7 @@
 # Estado del proyecto — Captura Partidos
 
 Documento de referencia: **qué está listo** y **qué falta** según el PRD y los sprints MVP.  
-**Última actualización:** Marzo 2026.
+**Última actualización:** Abril 2026.
 
 ---
 
@@ -16,7 +16,7 @@ Documento de referencia: **qué está listo** y **qué falta** según el PRD y l
 | [04-validaciones.md](./04-validaciones.md) | ✅ Listo | Validaciones críticas. |
 | [05-stack-y-roadmap.md](./05-stack-y-roadmap.md) | ✅ Listo | Stack y roadmap MVP/F2/F3. |
 | [06-play-store.md](./06-play-store.md) | ✅ Listo | Consideraciones Play Store. |
-| [07-especificacion-tecnica.md](./07-especificacion-tecnica.md) | ⚠️ Parcial | Endpoints y tipos; actualizar con RBAC y MembresiaLiga. |
+| [07-especificacion-tecnica.md](./07-especificacion-tecnica.md) | ✅ Listo | Endpoints actuales y fuente de verdad (routes + Prisma schema). |
 | [08-sprints-y-historias.md](./08-sprints-y-historias.md) | ✅ Listo | Historias y tareas por sprint. |
 | [09-checklist-rbac.md](./09-checklist-rbac.md) | ✅ Listo | Pruebas de roles y migración RBAC. |
 | [10-estado-del-proyecto.md](./10-estado-del-proyecto.md) | ✅ Listo | Este documento. |
@@ -41,12 +41,17 @@ Documento de referencia: **qué está listo** y **qué falta** según el PRD y l
 | Validación anotadorId con membresía en liga | ✅ |
 | Migración RBAC (script `db:migrate-rbac`) | ✅ |
 | Seed con liga demo y usuario anotador_partido | ✅ |
+| Registro web: organizador y capitán (email/password) | ✅ |
+| Uploads locales en `/uploads` (dev) | ✅ |
 
 ### 2.2 Endpoints
 
 | Endpoint | Estado | Protección |
 |----------|--------|------------|
 | POST /auth/anotador | ✅ | Público |
+| POST /auth/login-email | ✅ | Público |
+| POST /auth/organizador/registro | ✅ | Público |
+| POST /auth/registro-capitan | ✅ | Público |
 | GET /ligas, GET /ligas/:id | ✅ | auth + lectura |
 | GET /equipos, GET /equipos/:id | ✅ | auth + lectura |
 | GET /jugadores, GET /jugadores/:id | ✅ | auth + lectura |
@@ -64,12 +69,18 @@ Documento de referencia: **qué está listo** y **qué falta** según el PRD y l
 | GET /partidos/:id/acta/pdf | ✅ | auth + lectura |
 | GET /liga/panel | ✅ | auth + lectura |
 | GET /liga/equipos-estadisticas | ✅ | auth + lectura |
+| GET/PUT /liga/reglas | ✅ | auth + admin_liga (lectura/escritura) |
+| POST /equipos/registro-capitan, GET /equipos/mis | ✅ | auth + capturista_roster |
+| PUT/DELETE /equipos/:id | ✅ | auth + admin_liga |
+| POST/PUT/DELETE /jugadores | ✅ | auth + admin_liga/capturista_roster (según operación) |
+| GET/POST/PATCH /sedes | ✅ | auth + admin_liga |
+| GET/POST/PATCH /canchas | ✅ | auth + admin_liga |
 
 ### 2.3 Pendiente en backend
 
-- CRUD equipos/jugadores (solo lectura hoy); necesario para Fase 2 y para que capturista_roster/admin_liga gestionen roster.
+- Gestión de **membresías/roles** (invitar anotadores/capitanes/ayudantes, activar/desactivar) desde UI/endpoints sin depender de seed o secretos de desarrollo.
 - Regla de cierre por empate: si el marcador final es empate, no permitir cerrar y forzar tiempos extra (ya aplicado).
-- Actualizar doc 07 con modelo RBAC (JWT con roles, MembresiaLiga, permisos por ruta).
+- Storage real para fotos (S3/R2/etc.). Hoy en dev se sirve desde `/uploads`.
 
 ---
 
@@ -118,7 +129,7 @@ Documento de referencia: **qué está listo** y **qué falta** según el PRD y l
 - **Partidos del día:** flujo "Registrar default" ✅ (modal, elegir ganador, motivo; estado default_local/default_visitante + incidencia; lista y acta muestran "Ganador por default: Local/Visitante").
 - **Panel liga / Historial:** ✅ vista con partidos finalizados/default, filtro por incidencias, y por equipo (PJ, PG, PP, PF, PC, DIF).
 - **Editar / eliminar partidos:** no implementado; añadido al backlog (solo partidos en estado programado o en_curso; eliminar con confirmación).
-- **Ocultar/mostrar por rol:** deshabilitar o ocultar "Crear partido" y captura/cierre para rol solo **consulta** (usar `hasRole`).
+- **Ocultar/mostrar por rol:** deshabilitar o ocultar "Crear partido" y captura/cierre para rol solo **consulta** (usar `hasRole`). (Si ya está aplicado, revisar que todas las rutas sensibles lo respeten.)
 - **Selección de liga:** si el usuario tiene varias ligas, pantalla o selector de liga al iniciar (opcional para MVP).
 
 ---
@@ -204,7 +215,7 @@ Documento de referencia: **qué está listo** y **qué falta** según el PRD y l
 7. ~~**UX por rol**~~ ✅ Hecho (consulta sin crear/editar; botón atrás en header).
 8. ~~**Carga partido desde API**~~ ✅ Hecho (Captura/Resumen cargan desde API si no en Dexie).
 9. **Editar / eliminar partidos:** en backlog (solo programado/en_curso; con confirmación).
-10. **Doc 07:** alinear con RBAC y nuevos endpoints/modelos.
+10. **Docs**: mantener `docs/10` y `docs/07` sincronizados con cambios de endpoints/modelo.
 
 ### No iniciado (Fase 2 y 3)
 

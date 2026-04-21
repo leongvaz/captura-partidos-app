@@ -19,6 +19,7 @@ import SuperAdminLigaDetalle from '@/pages/SuperAdminLigaDetalle';
 import SuperAdminEquipoDetalle from '@/pages/SuperAdminEquipoDetalle';
 import JugadoresEquipo from '@/pages/JugadoresEquipo';
 import SedesCanchas from '@/pages/SedesCanchas';
+import AltaPartidoPruebas from '@/pages/AltaPartidoPruebas';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -59,6 +60,7 @@ export default function App() {
         }
       >
         <Route index element={<PartidosList />} />
+        <Route path="pruebas/alta-partido" element={<AltaPartidoPruebas />} />
         <Route path="reglas-liga" element={<ReglasLiga />} />
         <Route path="administrar-equipos" element={<AdministrarEquipos />} />
         <Route path="invitaciones-equipos" element={<AdministrarEquipos />} />

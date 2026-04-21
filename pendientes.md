@@ -16,7 +16,7 @@ Elementos **no contemplados** en los bloques actuales del plan MVP (docs 08, 13)
 | **Asignar “dueño/líder” de la liga** | Parcial | El modelo `MembresiaLiga` y roles (`admin_liga`, `capturista_roster`, `anotador_partido`, `consulta`) existen; **no hay flujo** (UI/endpoints) para invitar o dar de alta membresías desde la app. |
 | **Líder asigna colaboradores y anotadores** | No | Mismo criterio: RBAC sí, **gestión de usuarios/membresías por el organizador** no. |
 | **Links para capitanes/representantes** (inscripción de equipo/jugadores) | No | Documentado en Fase 2 (`docs/16-…`); **no implementado**. |
-| **Registro de jugadores** (segundo nombre opcional, apellido paterno/materno, CURP → edad, rama explícita) | No | Hoy `Jugador` tiene `nombre`, `apellido`, `numero`; **equipo** usa `categoria` (no hay rama/CURP/fecha de nacimiento en modelo). |
+| **Registro de jugadores** (CURP → sexo/edad, foto) | Parcial | Backend ya soporta `Jugador.curp`, `sexo`, `fechaNacimiento`, `fotoUrl` y `Persona` (historial por CURP). Falta UX completa de inscripción “por link” y validaciones avanzadas por rama/edad (Fase 2). |
 | **Vigencia de equipos acotada a la temporada** | No | `Liga.temporada` es texto; `Equipo` tiene `activo` pero **sin fechas ni vínculo de vigencia** al calendario de temporada. |
 
 ### Fases sugeridas (orden de trabajo)
@@ -82,7 +82,7 @@ Elementos **no contemplados** en los bloques actuales del plan MVP (docs 08, 13)
 ## Fase 2 — Ligas, inscripción y rol de juegos
 
 - Plan detallado en **[docs/16-plan-fase2-ligas-inscripcion-rol.md](docs/16-plan-fase2-ligas-inscripcion-rol.md)**: invitaciones (organizador, ayudantes, representantes), inscripción por link, config de liga (fechas, categorías, ramas, canchas con horarios), reglas de emparejamiento, torneo regular + eliminación (bracket por siembra), imagen/PDF del rol al estilo del front, descansos, asignación de anotadores, representante con 1+ equipos, página web misma funcionalidad que la app, equipos de prueba (nombres de referencia).
-- **Backend pendiente (doc 10):** CRUD equipos/jugadores (hoy solo lectura) para que `admin_liga` / `capturista_roster` gestionen roster sin tocar BD a mano.
+- **Backend pendiente (doc 10):** gestión de **membresías e invitaciones** (anotadores/capitanes/ayudantes) desde UI/endpoints, sin depender de seed o secretos de desarrollo.
 - Ver también la sección **Simulación de liga y construcción por fases** arriba (gap actual vs. plan).
 
 ---

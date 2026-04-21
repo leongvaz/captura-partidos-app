@@ -3,6 +3,8 @@ import type { Partido, PlantillaPartido, Evento, Incidencia, Liga, Equipo, Jugad
 
 export interface PartidoLocal extends Partido {
   synced?: boolean;
+  /** Partidos creados solo para pruebas locales (no se sincronizan). */
+  isTest?: boolean;
   closurePending?: boolean;
   cuartoActual?: number;
   segundosRestantesCuarto?: number;
@@ -21,11 +23,15 @@ export interface CierrePendiente {
 }
 export interface EventoLocal extends Evento {
   synced?: boolean;
+  /** Evento de partido de pruebas locales (no se sincroniza). */
+  isTest?: boolean;
   segundosRestantesCuarto?: number;
   tiempoPartidoSegundos?: number;
 }
 export interface IncidenciaLocal extends Incidencia {
   synced?: boolean;
+  /** Incidencia de partido de pruebas locales (no se sincroniza). */
+  isTest?: boolean;
 }
 
 export class CapturaDB extends Dexie {

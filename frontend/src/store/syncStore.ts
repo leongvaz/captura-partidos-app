@@ -24,8 +24,8 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   lastSyncedAt: null,
   setStatus: (s) => set({ status: s }),
   updateCounts: async () => {
-    const partidosP = await db.partidos.filter((p) => !p.synced).count();
-    const eventosP = await db.eventos.filter((e) => !e.synced).count();
+    const partidosP = await db.partidos.filter((p) => !p.synced && !p.isTest).count();
+    const eventosP = await db.eventos.filter((e) => !e.synced && !e.isTest).count();
     set({
       pendingPartidos: partidosP,
       pendingEventos: eventosP,
@@ -40,7 +40,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     }
     set({ status: 'syncing' });
     try {
-      const partidosPendientes = await db.partidos.filter((p) => !p.synced).toArray();
+      const partidosPendientes = await db.partidos.filter((p) => !p.synced && !p.isTest).toArray();
       for (const p of partidosPendientes) {
         try {
           await api('/partidos', { method: 'POST', body: p });
@@ -49,9 +49,15 @@ export const useSyncStore = create<SyncState>((set, get) => ({
           console.warn('Sync partido', p.id, e);
         }
       }
-      const uniquePartidos = [...new Set((await db.eventos.filter((e) => !e.synced).toArray()).map((e) => e.partidoId))];
+      const uniquePartidos = [
+        ...new Set((await db.eventos.filter((e) => !e.synced && !e.isTest).toArray()).map((e) => e.partidoId)),
+      ];
       for (const partidoId of uniquePartidos) {
-        const eventos = await db.eventos.where('partidoId').equals(partidoId).filter((e) => !e.synced).sortBy('orden');
+        const eventos = await db.eventos
+          .where('partidoId')
+          .equals(partidoId)
+          .filter((e) => !e.synced && !e.isTest)
+          .sortBy('orden');
         if (eventos.length === 0) continue;
         try {
           await api(`/partidos/${partidoId}/eventos`, { method: 'POST', body: { eventos } });
@@ -60,7 +66,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
           console.warn('Sync eventos', partidoId, e);
         }
       }
-      const incidenciasPendientes = await db.incidencias.filter((i) => !i.synced).toArray();
+      const incidenciasPendientes = await db.incidencias.filter((i) => !i.synced && !i.isTest).toArray();
       for (const inc of incidenciasPendientes) {
         try {
           const res = await api<{ id: string }>(`/partidos/${inc.partidoId}/incidencias`, {

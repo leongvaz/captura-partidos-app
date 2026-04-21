@@ -16,6 +16,7 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed-anotadores-pruebas": "tsx prisma/seed-anotadores-pruebas.ts",
     "db:migrate-rbac": "tsx prisma/migrate-rbac.ts",
     "db:backfill-historial": "tsx src/scripts/backfill_persona_resumenes.ts",
     "db:backfill-sedes": "tsx src/scripts/backfill_sedes_canchas.ts"

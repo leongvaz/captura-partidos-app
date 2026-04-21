@@ -154,8 +154,9 @@ export default function Captura() {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         synced: false,
+        isTest: Boolean((partido as any)?.isTest),
       });
-      useSyncStore.getState().runSync().catch(() => {});
+      if (!Boolean((partido as any)?.isTest)) useSyncStore.getState().runSync().catch(() => {});
     }
     if (j) {
       if (tipo === 'falta_personal' && personales === 4) {
@@ -284,9 +285,16 @@ export default function Captura() {
             </tr>
           </thead>
           <tbody>
-            {Array.from({ length: Math.max(getJugadoresEnCancha(partido.localEquipoId).length, getJugadoresEnCancha(partido.visitanteEquipoId).length) }, (_, i) => {
-              const plLocal = getJugadoresEnCancha(partido.localEquipoId)[i];
-              const plVisit = getJugadoresEnCancha(partido.visitanteEquipoId)[i];
+            {Array.from(
+              {
+                length: Math.max(
+                  getJugadoresEnCancha(partido.localEquipoId).length,
+                  getJugadoresEnCancha(partido.visitanteEquipoId).length
+                ),
+              },
+              (_, i) => {
+                const plLocal = getJugadoresEnCancha(partido.localEquipoId)[i];
+                const plVisit = getJugadoresEnCancha(partido.visitanteEquipoId)[i];
               const jLocal = plLocal ? jugadoresMap[plLocal.jugadorId] : null;
               const jVisit = plVisit ? jugadoresMap[plVisit.jugadorId] : null;
               const expulsadoLocal = jLocal && isJugadorExpulsado(jLocal.id);
@@ -305,7 +313,8 @@ export default function Captura() {
                   <td className={`py-0.5 text-right ${expulsadoVisit ? bgExpulsado : ''}`}>{jVisit ? `${Math.min(5, getFaltasJugador(jVisit.id))}${isJugadorExpulsado(jVisit.id) ? ' EXP' : ''}` : '—'}</td>
                 </tr>
               );
-            })}
+              }
+            )}
           </tbody>
         </table>
       </div>

@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { usePartidoStore } from '@/store/partidoStore';
 import type { PlantillaPartido } from '@/types/entities';
 import type { Jugador, Equipo } from '@/types/entities';
+import type { EventoLocal } from '@/lib/db';
 
 export default function ConfigMesa() {
   const { partidoId } = useParams<{ partidoId: string }>();
@@ -83,14 +84,77 @@ export default function ConfigMesa() {
     }
   };
 
-  const canIniciar = partido && localEnCancha.size === 5 && visitanteEnCancha.size === 5
-    && capitanLocal && capitanVisitante
-    && localEnCancha.has(capitanLocal) && visitanteEnCancha.has(capitanVisitante);
+  const yaIniciado = partido?.estado === 'en_curso';
+  const canGuardar = Boolean(
+    partido &&
+      localEnCancha.size === 5 &&
+      visitanteEnCancha.size === 5 &&
+      capitanLocal &&
+      capitanVisitante &&
+      // Capitán en cancha SOLO al iniciar. Ya iniciado, puede salir.
+      (yaIniciado || (localEnCancha.has(capitanLocal) && visitanteEnCancha.has(capitanVisitante)))
+  );
 
   const iniciarPartido = async () => {
-    if (!partidoId || !partido || !canIniciar) return;
+    if (!partidoId || !partido || !canGuardar) return;
     setSaving(true);
     try {
+      // Si el partido ya está en curso, estos cambios representan sustituciones.
+      // Registramos eventos de sustitución para que a futuro se pueda calcular "minutos jugados".
+      if (yaIniciado) {
+        const plActual = await db.plantilla.where('partidoId').equals(partidoId).toArray();
+        const prevLocal = new Set(
+          plActual.filter((x) => x.equipoId === partido.localEquipoId && x.enCanchaInicial).map((x) => x.jugadorId)
+        );
+        const prevVisit = new Set(
+          plActual.filter((x) => x.equipoId === partido.visitanteEquipoId && x.enCanchaInicial).map((x) => x.jugadorId)
+        );
+
+        const diff = (prev: Set<string>, next: Set<string>) => {
+          const salen: string[] = [];
+          const entran: string[] = [];
+          for (const id of prev) if (!next.has(id)) salen.push(id);
+          for (const id of next) if (!prev.has(id)) entran.push(id);
+          return { salen, entran };
+        };
+
+        const dLocal = diff(prevLocal, localEnCancha);
+        const dVisit = diff(prevVisit, visitanteEnCancha);
+        const cambios = [
+          { equipoId: partido.localEquipoId, ...dLocal },
+          { equipoId: partido.visitanteEquipoId, ...dVisit },
+        ].filter((x) => x.salen.length || x.entran.length);
+
+        if (cambios.length) {
+          const snap = usePartidoStore.getState().getCronoSnapshot();
+          const existentes = await db.eventos.where('partidoId').equals(partidoId).sortBy('orden');
+          let orden = existentes.length ? Math.max(...existentes.map((e) => e.orden)) + 1 : 1;
+
+          const nowIso = new Date().toISOString();
+          const toEv = (tipo: 'sustitucion_sale' | 'sustitucion_entra', jugadorId: string): EventoLocal => ({
+            id: crypto.randomUUID(),
+            partidoId,
+            tipo,
+            jugadorId,
+            jugadorEntraId: tipo === 'sustitucion_entra' ? jugadorId : undefined,
+            minutoPartido: Math.floor(snap.tiempoPartidoSegundos / 60),
+            cuarto: snap.cuartoActual,
+            orden: orden++,
+            createdAt: nowIso,
+            synced: false,
+            segundosRestantesCuarto: snap.segundosRestantesCuarto,
+            tiempoPartidoSegundos: snap.tiempoPartidoSegundos,
+          });
+
+          const eventosNuevos: EventoLocal[] = [];
+          for (const c of cambios) {
+            for (const s of c.salen) eventosNuevos.push(toEv('sustitucion_sale', s));
+            for (const e of c.entran) eventosNuevos.push(toEv('sustitucion_entra', e));
+          }
+          for (const ev of eventosNuevos) await db.eventos.add(ev);
+        }
+      }
+
       const items: Omit<PlantillaPartido, 'id' | 'createdAt' | 'updatedAt'>[] = [];
       const add = (equipoId: string, jugadorId: string, enCancha: boolean, capitan: boolean, coach: boolean) => {
         items.push({
@@ -122,7 +186,7 @@ export default function ConfigMesa() {
       await db.partidos.update(partidoId, { estado: 'en_curso', updatedAt: new Date().toISOString() });
       try {
         await api('/partidos/' + partidoId + '/plantilla', { method: 'POST', body: { items } });
-        await api('/partidos/' + partidoId, { method: 'PATCH', body: { estado: 'en_curso' } });
+        if (!yaIniciado) await api('/partidos/' + partidoId, { method: 'PATCH', body: { estado: 'en_curso' } });
       } catch (_) {}
       navigate(`/partido/${partidoId}/captura`);
     } finally {
@@ -165,7 +229,9 @@ export default function ConfigMesa() {
           </div>
         ))}
       </div>
-      <p className="text-xs text-slate-400">En cancha: {enCancha.size}/5 · El capitán debe estar en cancha.</p>
+      <p className="text-xs text-slate-400">
+        En cancha: {enCancha.size}/5 · El capitán debe iniciar en cancha (puede salir después).
+      </p>
     </div>
   );
 
@@ -174,18 +240,18 @@ export default function ConfigMesa() {
       <h2 className="text-xl font-bold text-slate-100 mb-4">Configuración de mesa</h2>
       {renderEquipo(partido.localEquipoId, localJugadores, localEnCancha, setCapitanLocal, setCoachLocal, capitanLocal, coachLocal)}
       {renderEquipo(partido.visitanteEquipoId, visitanteJugadores, visitanteEnCancha, setCapitanVisitante, setCoachVisitante, capitanVisitante, coachVisitante)}
-      {!canIniciar && (
+      {!canGuardar && (
         <p className="text-amber-400 text-sm mb-4">
-          Se requieren 5 jugadores en cancha por equipo y capitán en cancha.
+          Se requieren 5 jugadores en cancha por equipo{yaIniciado ? '.' : ' y capitán en cancha al iniciar.'}
         </p>
       )}
       <button
         type="button"
-        disabled={!canIniciar || saving}
+        disabled={!canGuardar || saving}
         onClick={iniciarPartido}
         className="w-full rounded-lg bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white font-medium py-3"
       >
-        {saving ? 'Guardando...' : 'Iniciar partido'}
+        {saving ? 'Guardando...' : yaIniciado ? 'Continuar partido' : 'Iniciar partido'}
       </button>
     </div>
   );
