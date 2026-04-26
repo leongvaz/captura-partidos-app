@@ -14,6 +14,8 @@ export default function PartidosList() {
   const isAdminLiga = useAuthStore((s) => s.hasRole('admin_liga'));
   const navigate = useNavigate();
   const canEditPartido = (p: Partido | PartidoLocal) => canWritePartido && (p.anotadorId === usuarioId || isAdminLiga);
+  const canDeletePartidoLocal = (p: Partido | PartidoLocal) => canEditPartido(p);
+  const canDeletePartidoServidor = (p: Partido | PartidoLocal) => canEditPartido(p) && (p.estado !== 'finalizado' || isAdminLiga);
   const [partidos, setPartidos] = useState<(Partido | PartidoLocal)[]>([]);
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [loading, setLoading] = useState(true);
@@ -92,6 +94,58 @@ export default function PartidosList() {
     });
   }, [partidos]);
 
+  const eliminarPartido = async (e: React.MouseEvent, p: Partido | PartidoLocal) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!canDeletePartidoLocal(p)) return;
+    const okLocal = window.confirm(
+      `¿Eliminar este partido de ESTE dispositivo?\n\nEsto borrará el partido y sus eventos locales.\n\nEsta acción no se puede deshacer.`
+    );
+    if (!okLocal) return;
+
+    try {
+      await db.transaction(
+        'rw',
+        [
+          db.partidos,
+          db.plantilla,
+          db.eventos,
+          db.eventosAnulados,
+          db.incidencias,
+          db.fotosCierre,
+          db.cierresPendientes,
+        ],
+        async () => {
+          await db.eventos.where('partidoId').equals(p.id).delete();
+          await db.eventosAnulados.where('partidoId').equals(p.id).delete();
+          await db.plantilla.where('partidoId').equals(p.id).delete();
+          await db.incidencias.where('partidoId').equals(p.id).delete();
+          await db.fotosCierre.delete(p.id);
+          await db.cierresPendientes.where('partidoId').equals(p.id).delete();
+          await db.partidos.delete(p.id);
+        }
+      );
+      setPartidos((prev) => prev.filter((x) => x.id !== p.id));
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo eliminar el partido en este dispositivo.');
+      return;
+    }
+
+    if (navigator.onLine && canDeletePartidoServidor(p)) {
+      const okServidor = window.confirm(
+        `¿También quieres eliminarlo del SERVIDOR?\n\nEsto lo borrará para todos los dispositivos.\n\nEsta acción no se puede deshacer.`
+      );
+      if (!okServidor) return;
+      try {
+        await api(`/partidos/${p.id}`, { method: 'DELETE' });
+      } catch (err) {
+        console.error(err);
+        alert('El partido se eliminó localmente, pero no se pudo eliminar en el servidor (revisa permisos/conexión).');
+      }
+    }
+  };
+
   return (
     <div className="p-4 max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-2">
@@ -127,8 +181,13 @@ export default function PartidosList() {
           onClick={() => navigate(`/pruebas/alta-partido?fecha=${encodeURIComponent(fecha)}`)}
           className="w-full rounded-lg bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 mb-4"
         >
-          + Nuevo partido (pruebas)
+          + Nuevo partido rapido
         </button>
+      )}
+      {canWritePartido && (
+        <p className="text-xs text-slate-400 mb-4">
+          Este flujo crea partidos persistidos en backend para captura rapida, aun si todavia no existe registro formal de capitanes, CURP o roster administrativo.
+        </p>
       )}
       {loading ? (
         <p className="text-slate-400 text-center py-8">Cargando...</p>
@@ -171,6 +230,15 @@ export default function PartidosList() {
                         className="text-xs px-2 py-1 rounded bg-amber-700 hover:bg-amber-600 text-white"
                       >
                         Registrar default
+                      </button>
+                    )}
+                    {canDeletePartidoLocal(p) && (
+                      <button
+                        type="button"
+                        onClick={(e) => eliminarPartido(e, p)}
+                        className="text-xs px-2 py-1 rounded bg-rose-700 hover:bg-rose-600 text-white"
+                      >
+                        Eliminar
                       </button>
                     )}
                     <span className={`text-xs px-2 py-0.5 rounded ${p.estado === 'finalizado' ? 'bg-slate-600' : p.estado === 'default_local' || p.estado === 'default_visitante' ? 'bg-amber-800' : p.estado === 'en_curso' ? 'bg-emerald-700' : 'bg-slate-600'}`}>

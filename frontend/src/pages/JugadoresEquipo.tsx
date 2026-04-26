@@ -279,6 +279,9 @@ export default function JugadoresEquipo() {
                     onChange={(e) => setFotoFile(e.target.files?.[0] ?? null)}
                     className="block w-full text-sm text-slate-300"
                   />
+                  {fotoFile && (
+                    <p className="mt-1 text-xs text-slate-400">Archivo seleccionado: {fotoFile.name}</p>
+                  )}
                 </div>
               </div>
               <button

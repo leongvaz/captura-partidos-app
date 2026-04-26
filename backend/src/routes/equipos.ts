@@ -65,7 +65,7 @@ export async function equiposRoutes(app: FastifyInstance) {
     '/equipos',
     { preHandler: [app.authenticate, requireRole(...ROLES_LECTURA_ROSTER)] },
     async (request, reply) => {
-      const ligaId = request.query.ligaId || (request as { ligaId?: string }).ligaId;
+      const ligaId = request.query.ligaId || (request as AuthRequest).ligaId;
       if (!ligaId) return reply.status(400).send({ code: 'VALIDATION', message: 'ligaId es requerido' });
       const list = await prisma.equipo.findMany({
         where: { ligaId },
@@ -170,7 +170,7 @@ export async function equiposRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>('/equipos/:id', { preHandler: [app.authenticate, requireRole(...ROLES_LECTURA_ROSTER)] }, async (request, reply) => {
     const equipo = await prisma.equipo.findUnique({ where: { id: request.params.id } });
     if (!equipo) return reply.status(404).send({ code: 'NOT_FOUND', message: 'Equipo no encontrado' });
-    const ligaId = (request as { ligaId: string }).ligaId;
+    const ligaId = (request as AuthRequest).ligaId;
     if (equipo.ligaId !== ligaId) return reply.status(403).send({ code: 'FORBIDDEN', message: 'No autorizado' });
     return reply.send({
       id: equipo.id,

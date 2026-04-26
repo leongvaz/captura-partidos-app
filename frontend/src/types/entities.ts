@@ -14,13 +14,17 @@ export type TipoEvento =
   | 'falta_personal'
   | 'falta_antideportiva'
   | 'falta_tecnica'
+  | 'falta_descalificante'
   | 'sustitucion_entra'
-  | 'sustitucion_sale';
+  | 'sustitucion_sale'
+  | 'tiempo_fuera';
 
 export type TipoIncidencia =
   | 'default_no_presentacion'
   | 'expulsion_antideportivas'
   | 'expulsion_tecnicas'
+  | 'expulsion_descalificante'
+  | 'expulsion_faltas'
   | 'protesta';
 
 export interface Liga {

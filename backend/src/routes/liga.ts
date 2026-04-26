@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { requireRole, ensureMembership, type AuthRequest } from '../lib/auth.js';
 import { etiquetaCancha } from '../lib/canchaEtiqueta.js';
 import { sedeNombrePorIdMap } from '../lib/canchaSedeBatch.js';
+import { deriveBackendMatchState } from '../lib/matchDomain.js';
 import { ROLES_LECTURA_ROSTER } from '../lib/rbac.js';
 
 const ESTADOS_CERRADOS = ['finalizado', 'default_local', 'default_visitante'] as const;
@@ -91,7 +93,16 @@ function normalizarFechasReglasLiga(reglas: ReglasLigaConfig): ReglasLigaConfig 
 
 function getMarcadorPartido(
   partido: { marcadorLocalFinal: number | null; marcadorVisitanteFinal: number | null; estado: string },
-  eventos: { tipo: string; jugadorId: string }[],
+  eventos: {
+    id?: string;
+    tipo: string;
+    jugadorId: string;
+    jugadorEntraId?: string | null;
+    cuarto?: number;
+    orden?: number;
+    createdAt?: Date;
+    segundosRestantesCuarto?: number | null;
+  }[],
   plantilla: { equipoId: string; jugadorId: string }[],
   localEquipoId: string,
   visitanteEquipoId: string
@@ -99,22 +110,30 @@ function getMarcadorPartido(
   if (partido.marcadorLocalFinal != null && partido.marcadorVisitanteFinal != null) {
     return { local: partido.marcadorLocalFinal, visitante: partido.marcadorVisitanteFinal };
   }
-  const puntosPorJugador: Record<string, number> = {};
-  for (const e of eventos) {
-    if (!puntosPorJugador[e.jugadorId]) puntosPorJugador[e.jugadorId] = 0;
-    if (e.tipo === 'punto_2') puntosPorJugador[e.jugadorId] += 2;
-    else if (e.tipo === 'punto_3') puntosPorJugador[e.jugadorId] += 3;
-    else if (e.tipo === 'tiro_libre_anotado') puntosPorJugador[e.jugadorId] += 1;
-  }
-  const local = plantilla
-    .filter((p) => p.equipoId === localEquipoId)
-    .reduce((s, p) => s + (puntosPorJugador[p.jugadorId] || 0), 0);
-  const visitante = plantilla
-    .filter((p) => p.equipoId === visitanteEquipoId)
-    .reduce((s, p) => s + (puntosPorJugador[p.jugadorId] || 0), 0);
   if (partido.estado === 'default_local') return { local: 0, visitante: 20 };
   if (partido.estado === 'default_visitante') return { local: 20, visitante: 0 };
-  return { local, visitante };
+  const state = deriveBackendMatchState({
+    id: 'temp',
+    estado: partido.estado,
+    localEquipoId,
+    visitanteEquipoId,
+    plantilla: plantilla.map((item) => ({
+      equipoId: item.equipoId,
+      jugadorId: item.jugadorId,
+      enCanchaInicial: false,
+    })),
+    eventos: eventos.map((event, index) => ({
+      id: event.id ?? `temp-${index}`,
+      tipo: event.tipo,
+      jugadorId: event.jugadorId,
+      jugadorEntraId: event.jugadorEntraId ?? null,
+      cuarto: event.cuarto ?? 1,
+      orden: event.orden ?? index,
+      createdAt: event.createdAt ?? new Date(),
+      segundosRestantesCuarto: event.segundosRestantesCuarto ?? null,
+    })),
+  });
+  return { local: state.score.home, visitante: state.score.away };
 }
 
 export async function ligaRoutes(app: FastifyInstance) {
@@ -305,14 +324,14 @@ export async function ligaRoutes(app: FastifyInstance) {
     { preHandler: [app.authenticate, ensureMembership, requireRole(...ROLES_LECTURA_ROSTER)] },
     async (request, reply) => {
       const { ligaId, fechaDesde, fechaHasta, conIncidencia } = request.query;
-      const req = request as { ligaId: string };
+      const req = request as AuthRequest;
       if (!ligaId || req.ligaId !== ligaId) {
         return reply.status(400).send({ code: 'VALIDATION', message: 'ligaId es requerido' });
       }
 
-      const where: { ligaId: string; estado: { in: readonly string[] }; fecha?: object; incidencias?: object } = {
+      const where: Prisma.PartidoWhereInput = {
         ligaId,
-        estado: { in: [...ESTADOS_CERRADOS] },
+        estado: { in: [...ESTADOS_CERRADOS] as string[] },
       };
       if (fechaDesde || fechaHasta) {
         where.fecha = {};
@@ -372,7 +391,7 @@ export async function ligaRoutes(app: FastifyInstance) {
     { preHandler: [app.authenticate, ensureMembership, requireRole(...ROLES_LECTURA_ROSTER)] },
     async (request, reply) => {
       const { ligaId } = request.query;
-      const req = request as { ligaId: string };
+      const req = request as AuthRequest;
       if (!ligaId || req.ligaId !== ligaId) {
         return reply.status(400).send({ code: 'VALIDATION', message: 'ligaId es requerido' });
       }
@@ -383,7 +402,7 @@ export async function ligaRoutes(app: FastifyInstance) {
       });
 
       const partidos = await prisma.partido.findMany({
-        where: { ligaId, estado: { in: [...ESTADOS_CERRADOS] } },
+        where: { ligaId, estado: { in: [...ESTADOS_CERRADOS] as string[] } },
         include: {
           eventos: true,
           plantilla: true,
@@ -440,7 +459,7 @@ export async function ligaRoutes(app: FastifyInstance) {
     { preHandler: [app.authenticate, ensureMembership, requireRole('admin_liga', 'capturista_roster')] },
     async (request, reply) => {
       const { ligaId } = request.query;
-      const req = request as { ligaId: string };
+      const req = request as AuthRequest;
       if (!ligaId || req.ligaId !== ligaId) {
         return reply.status(400).send({ code: 'VALIDATION', message: 'ligaId es requerido' });
       }
@@ -503,7 +522,7 @@ export async function ligaRoutes(app: FastifyInstance) {
     { preHandler: [app.authenticate, ensureMembership, requireRole('admin_liga')] },
     async (request, reply) => {
       const { ligaId, config } = request.body || {};
-      const req = request as { ligaId: string };
+      const req = request as AuthRequest;
       if (!ligaId || req.ligaId !== ligaId) {
         return reply.status(400).send({ code: 'VALIDATION', message: 'ligaId es requerido' });
       }

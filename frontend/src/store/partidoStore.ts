@@ -1,7 +1,12 @@
 import { create } from 'zustand';
-import type { Partido, PlantillaPartido, Evento, TipoEvento } from '@/types/entities';
+import type { Partido, PlantillaPartido, TipoEvento } from '@/types/entities';
 import type { EventoLocal, PartidoLocal } from '@/lib/db';
 import { db } from '@/lib/db';
+import {
+  defaultLeagueRules,
+  deriveLegacyMatchState,
+  getPeriodKey,
+} from '@/domain/match';
 import { useSyncStore } from '@/store/syncStore';
 function uuidv4(): string {
   return crypto.randomUUID();
@@ -17,8 +22,8 @@ function duracionPeriodo(cuarto: number): number {
 function segundosRestantesDerivado(nowMs: number, cronoRunning: boolean, lastTickAt: string | null, segundosBase: number): number {
   if (!cronoRunning || !lastTickAt) return segundosBase;
   const startedAtMs = new Date(lastTickAt).getTime();
-  const elapsed = Math.floor((nowMs - startedAtMs) / 1000);
-  return Math.max(0, segundosBase - Math.max(0, elapsed));
+  const elapsedSeconds = Math.max(0, (nowMs - startedAtMs) / 1000);
+  return Math.max(0, segundosBase - elapsedSeconds);
 }
 
 interface PartidoState {
@@ -50,23 +55,52 @@ interface PartidoState {
   editarTiempoManual: (minutos: number, segundos: number) => void;
   getCronoSnapshot: () => { cuartoActual: number; segundosRestantesCuarto: number; tiempoPartidoSegundos: number };
   getJugadoresEnCancha: (equipoId: string) => PlantillaPartido[];
+  getOfficialScore: () => { home: number; away: number };
   getPuntosJugador: (jugadorId: string) => number;
   getFaltasJugador: (jugadorId: string) => number;
   getFaltasPersonalesJugador: (jugadorId: string) => number;
   getFaltasAntideportivasJugador: (jugadorId: string) => number;
   getFaltasTecnicasJugador: (jugadorId: string) => number;
   isJugadorExpulsado: (jugadorId: string) => boolean;
+  getTeamFoulsByPeriod: (equipoId: string, cuarto?: number) => number;
+  canFinishMatch: (closingPhotoProvided?: boolean) => boolean;
+  shouldStartOvertime: () => boolean;
+  getFinishBlockReasons: (closingPhotoProvided?: boolean) => string[];
 }
-
-const PUNTOS: Record<string, number> = {
-  punto_2: 2,
-  punto_3: 3,
-  tiro_libre_anotado: 1,
-};
-const FALTA_TIPOS = ['falta_personal', 'falta_antideportiva', 'falta_tecnica'];
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
+}
+
+function buildDomainStateFromStore(
+  state: Pick<
+    PartidoState,
+    'partidoActual' | 'plantilla' | 'eventos' | 'cuartoActual' | 'segundosRestantesCuarto' | 'cronoRunning' | 'lastTickAt'
+  >,
+  closingPhotoProvided = false
+) {
+  if (!state.partidoActual) return null;
+  const segundosRestantesActual = segundosRestantesDerivado(
+    Date.now(),
+    state.cronoRunning,
+    state.lastTickAt,
+    state.segundosRestantesCuarto
+  );
+
+  return deriveLegacyMatchState(
+    state.partidoActual,
+    state.plantilla,
+    state.eventos,
+    {
+      cuartoActual: state.cuartoActual,
+      segundosRestantesCuarto: segundosRestantesActual,
+      cronoRunning: state.cronoRunning,
+    },
+    defaultLeagueRules,
+    {
+      closingPhotoProvided,
+    }
+  );
 }
 
 export const usePartidoStore = create<PartidoState>((set, get) => ({
@@ -108,11 +142,17 @@ export const usePartidoStore = create<PartidoState>((set, get) => ({
   },
   persistirCronoEnPartidoLocal: async (partidoId: string) => {
     const { cuartoActual, segundosRestantesCuarto, cronoRunning, lastTickAt } = get();
+    const segundosRestantesActual = segundosRestantesDerivado(Date.now(), cronoRunning, lastTickAt, segundosRestantesCuarto);
+    const nextLastTickAt = cronoRunning ? new Date().toISOString() : null;
+    set({
+      segundosRestantesCuarto: segundosRestantesActual,
+      lastTickAt: nextLastTickAt,
+    });
     await db.partidos.update(partidoId, {
       cuartoActual,
-      segundosRestantesCuarto,
+      segundosRestantesCuarto: segundosRestantesActual,
       cronoRunning,
-      lastTickAt,
+      lastTickAt: nextLastTickAt,
     });
   },
   toggleCrono: () => {
@@ -189,6 +229,25 @@ export const usePartidoStore = create<PartidoState>((set, get) => ({
   agregarEvento: async (tipo, jugadorEntraId) => {
     const { partidoActual, plantilla, eventos, jugadorSeleccionadoId, ordenContador, getCronoSnapshot } = get();
     if (!partidoActual || !jugadorSeleccionadoId) return;
+    if (tipo === 'sustitucion_entra') {
+      const pl = plantilla.find((item) => item.jugadorId === jugadorSeleccionadoId);
+      const domainState = buildDomainStateFromStore(get());
+      if (!pl || !domainState) return;
+      const isHome = pl.equipoId === partidoActual.localEquipoId;
+      const team = isHome ? domainState.home : domainState.away;
+      const player = domainState.players[jugadorSeleccionadoId];
+      if (!player || player.isDisqualified || player.isOnCourt || team.playersOnCourt.length >= defaultLeagueRules.maxPlayersOnCourt) {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.warn('[captura][sustitucion_bloqueada]', {
+            jugadorId: jugadorSeleccionadoId,
+            equipoId: pl.equipoId,
+            enCancha: team.playersOnCourt.length,
+          });
+        }
+        return;
+      }
+    }
     const orden = ordenContador;
     const { cuartoActual, segundosRestantesCuarto, tiempoPartidoSegundos } = getCronoSnapshot();
     const isTest = Boolean((partidoActual as PartidoLocal | null)?.isTest);
@@ -203,10 +262,24 @@ export const usePartidoStore = create<PartidoState>((set, get) => ({
       orden,
       createdAt: new Date().toISOString(),
       synced: false,
+      syncStatus: isTest ? 'synced' : 'pending',
+      syncError: null,
       isTest,
       segundosRestantesCuarto,
       tiempoPartidoSegundos,
     };
+    if (import.meta.env.DEV) {
+      // Debug de captura: ver eventos uno por uno conforme se registran.
+      // eslint-disable-next-line no-console
+      console.debug('[captura][evento]', {
+        orden: ev.orden,
+        tipo: ev.tipo,
+        jugadorId: ev.jugadorId,
+        jugadorEntraId: ev.jugadorEntraId,
+        cuarto: ev.cuarto,
+        segundosRestantesCuarto: ev.segundosRestantesCuarto,
+      });
+    }
     await db.eventos.add(ev);
     set({ eventos: [...eventos, ev], ordenContador: orden + 1 });
     if (!isTest) useSyncStore.getState().runSync().catch(() => {});
@@ -215,46 +288,93 @@ export const usePartidoStore = create<PartidoState>((set, get) => ({
     const { eventos, partidoActual } = get();
     if (!eventos.length || !partidoActual) return;
     const last = eventos[eventos.length - 1];
-    await db.eventos.delete(last.id);
-    set({ eventos: eventos.slice(0, -1), ordenContador: get().ordenContador - 1 });
     const isTest = Boolean((partidoActual as PartidoLocal | null)?.isTest);
+    if (last.synced && !isTest) {
+      await db.eventosAnulados.put({
+        eventId: last.id,
+        partidoId: partidoActual.id,
+        createdAt: new Date().toISOString(),
+        synced: false,
+        syncStatus: 'pending',
+        syncError: null,
+        isTest,
+      });
+    }
+    await db.eventos.delete(last.id);
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.debug('[captura][deshacer]', { orden: last.orden, tipo: last.tipo, jugadorId: last.jugadorId });
+    }
+    set({ eventos: eventos.slice(0, -1), ordenContador: get().ordenContador - 1 });
     if (!isTest) useSyncStore.getState().runSync().catch(() => {});
   },
   getJugadoresEnCancha: (equipoId) => {
-    const { plantilla, eventos } = get();
-    const enCanchaInicial = plantilla.filter((p) => p.equipoId === equipoId && p.enCanchaInicial).map((p) => p.jugadorId);
-    let actual = new Set(enCanchaInicial);
-    for (const e of eventos) {
-      if (e.tipo === 'sustitucion_sale') actual.delete(e.jugadorId);
-      else if (e.tipo === 'sustitucion_entra' && e.jugadorEntraId) actual.add(e.jugadorEntraId);
-    }
-    return plantilla.filter((p) => p.equipoId === equipoId && actual.has(p.jugadorId));
+    const state = get();
+    const { partidoActual, plantilla } = state;
+    if (!partidoActual) return [];
+    const domainState = buildDomainStateFromStore(state);
+    if (!domainState) return [];
+    const isHome = equipoId === partidoActual.localEquipoId;
+    const ids = new Set(isHome ? domainState.home.playersOnCourt : domainState.away.playersOnCourt);
+    return plantilla.filter((p) => p.equipoId === equipoId && ids.has(p.jugadorId));
+  },
+  getOfficialScore: () => {
+    const domainState = buildDomainStateFromStore(get());
+    return domainState ? domainState.score : { home: 0, away: 0 };
   },
   getPuntosJugador: (jugadorId) => {
-    return get().eventos
-      .filter((e) => e.jugadorId === jugadorId && PUNTOS[e.tipo])
-      .reduce((s, e) => s + (PUNTOS[e.tipo] ?? 0), 0);
+    const domainState = buildDomainStateFromStore(get());
+    return domainState?.players[jugadorId]?.points ?? 0;
   },
   getFaltasJugador: (jugadorId) => {
-    return get().eventos.filter((e) => e.jugadorId === jugadorId && FALTA_TIPOS.includes(e.tipo)).length;
+    const domainState = buildDomainStateFromStore(get());
+    return domainState?.players[jugadorId]?.totalFoulsForDisplay ?? 0;
   },
   getFaltasPersonalesJugador: (jugadorId) => {
-    return get().eventos.filter((e) => e.jugadorId === jugadorId && e.tipo === 'falta_personal').length;
+    const domainState = buildDomainStateFromStore(get());
+    return domainState?.players[jugadorId]?.personalFouls ?? 0;
   },
   getFaltasAntideportivasJugador: (jugadorId) => {
-    return get().eventos.filter((e) => e.jugadorId === jugadorId && e.tipo === 'falta_antideportiva').length;
+    const domainState = buildDomainStateFromStore(get());
+    return domainState?.players[jugadorId]?.unsportsmanlikeFouls ?? 0;
   },
   getFaltasTecnicasJugador: (jugadorId) => {
-    return get().eventos.filter((e) => e.jugadorId === jugadorId && e.tipo === 'falta_tecnica').length;
+    const domainState = buildDomainStateFromStore(get());
+    return domainState?.players[jugadorId]?.technicalFouls ?? 0;
   },
   isJugadorExpulsado: (jugadorId) => {
-    const personales = get().eventos.filter((e) => e.jugadorId === jugadorId && e.tipo === 'falta_personal').length;
-    const antideportivas = get().eventos.filter((e) => e.jugadorId === jugadorId && e.tipo === 'falta_antideportiva').length;
-    const tecnicas = get().eventos.filter((e) => e.jugadorId === jugadorId && e.tipo === 'falta_tecnica').length;
-    if (personales >= 5) return true;
-    if (antideportivas >= 2 || tecnicas >= 2) return true;
-    if (antideportivas >= 1 && tecnicas >= 1) return true;
-    if (personales >= 4 && (antideportivas >= 1 || tecnicas >= 1)) return true;
-    return false;
+    const domainState = buildDomainStateFromStore(get());
+    return domainState?.players[jugadorId]?.isDisqualified ?? false;
+  },
+  getTeamFoulsByPeriod: (equipoId, cuarto) => {
+    const state = get();
+    const { partidoActual, cuartoActual } = state;
+    if (!partidoActual) return 0;
+    const domainState = buildDomainStateFromStore(state);
+    if (!domainState) return 0;
+    const targetCuarto = cuarto ?? cuartoActual;
+    const periodType = targetCuarto <= defaultLeagueRules.regularPeriods ? 'regular' : 'overtime';
+    const periodNumber =
+      periodType === 'regular'
+        ? targetCuarto
+        : targetCuarto - defaultLeagueRules.regularPeriods;
+    const key = getPeriodKey(periodNumber, periodType);
+    const team =
+      equipoId === partidoActual.localEquipoId
+        ? domainState.home.teamFoulsByPeriod
+        : domainState.away.teamFoulsByPeriod;
+    return team[key] ?? 0;
+  },
+  canFinishMatch: (closingPhotoProvided = false) => {
+    const domainState = buildDomainStateFromStore(get(), closingPhotoProvided);
+    return domainState?.canFinish ?? false;
+  },
+  shouldStartOvertime: () => {
+    const domainState = buildDomainStateFromStore(get());
+    return domainState?.needsOvertime ?? false;
+  },
+  getFinishBlockReasons: (closingPhotoProvided = false) => {
+    const domainState = buildDomainStateFromStore(get(), closingPhotoProvided);
+    return domainState?.finishBlockReasons ?? [];
   },
 }));

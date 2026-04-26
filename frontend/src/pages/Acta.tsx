@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { api } from '@/lib/api';
+import { useSyncStore } from '@/store/syncStore';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
 
@@ -10,6 +11,12 @@ async function fetchPdfBlob(partidoId: string): Promise<Blob> {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) throw new Error(res.statusText || 'Error al obtener el PDF');
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().includes('application/pdf')) {
+    // Si el backend devolvió JSON/HTML (p.ej. error) pero con 200, evitamos descargar "PDF" corrupto.
+    const text = await res.text().catch(() => '');
+    throw new Error(`Respuesta no es PDF (${contentType || 'sin content-type'}): ${text.slice(0, 200)}`);
+  }
   return res.blob();
 }
 
@@ -35,6 +42,11 @@ export default function Acta() {
   const [error, setError] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [syncHealth, setSyncHealth] = useState<{ pending: number; failed: number; lastError: string | null }>({
+    pending: 0,
+    failed: 0,
+    lastError: null,
+  });
 
   useEffect(() => {
     if (!partidoId) return;
@@ -42,6 +54,7 @@ export default function Acta() {
       .then(setActa)
       .catch((e) => setError(e instanceof Error ? e.message : 'Error'))
       .finally(() => setLoading(false));
+    useSyncStore.getState().getPartidoSyncHealth(partidoId).then(setSyncHealth).catch(() => {});
   }, [partidoId]);
 
   const fotoUrl = acta?.fotoMarcadorUrl
@@ -58,7 +71,8 @@ export default function Acta() {
       a.href = url;
       a.download = `acta-${acta?.folio || partidoId}.pdf`;
       a.click();
-      URL.revokeObjectURL(url);
+      // En algunos navegadores, revocar inmediatamente puede corromper/invalidar el download.
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
     } catch (e) {
       console.error(e);
       alert('No se pudo descargar el PDF.');
@@ -72,12 +86,17 @@ export default function Acta() {
     setSharing(true);
     try {
       const blob = await fetchPdfBlob(partidoId);
-      const file = new File([blob], `acta-${acta?.folio || partidoId}.pdf`, { type: 'application/pdf' });
+      const folio = acta?.folio ?? partidoId;
+      const file = new File([blob], `acta-${folio}.pdf`, { type: 'application/pdf' });
+      const shareTitle = `Acta ${folio}`;
+      const shareText = acta
+        ? `Acta del partido ${acta.local.nombre} vs ${acta.visitante.nombre} - Folio ${acta.folio}`
+        : `Acta ${folio}`;
 
       if (typeof navigator.share !== 'undefined' && navigator.canShare?.({ files: [file] })) {
         await navigator.share({
-          title: `Acta ${acta?.folio}`,
-          text: acta ? `Acta del partido ${acta.local.nombre} vs ${acta.visitante.nombre} - Folio ${acta.folio}` : `Acta ${acta?.folio}`,
+          title: shareTitle,
+          text: shareText,
           files: [file],
         });
       } else {
@@ -86,7 +105,7 @@ export default function Acta() {
         a.href = url;
         a.download = `acta-${acta?.folio || partidoId}.pdf`;
         a.click();
-        URL.revokeObjectURL(url);
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
         if (typeof navigator.share === 'undefined') {
           alert('Descarga iniciada. En este navegador no está disponible compartir directamente.');
         }
@@ -126,6 +145,11 @@ export default function Acta() {
       </div>
       {folioParam && (
         <p className="text-center text-emerald-400 font-medium mb-2">Folio: {acta.folio || folioParam}</p>
+      )}
+      {(syncHealth.pending > 0 || syncHealth.failed > 0) && (
+        <div className="mb-4 rounded-lg bg-amber-900/80 border border-amber-600 px-3 py-2 text-amber-200 text-sm">
+          El acta oficial puede no incluir {syncHealth.pending} cambios pendientes y {syncHealth.failed} con error.
+        </div>
       )}
       <div className="text-center text-2xl font-bold text-slate-100 mb-4">
         {acta.local.nombre} {acta.local.puntos} - {acta.visitante.puntos} {acta.visitante.nombre}

@@ -6,6 +6,9 @@ export interface PartidoLocal extends Partido {
   /** Partidos creados solo para pruebas locales (no se sincronizan). */
   isTest?: boolean;
   closurePending?: boolean;
+  plantillaSynced?: boolean;
+  plantillaSyncStatus?: 'pending' | 'syncing' | 'synced' | 'failed';
+  plantillaSyncError?: string | null;
   cuartoActual?: number;
   segundosRestantesCuarto?: number;
   cronoRunning?: boolean;
@@ -20,16 +23,31 @@ export interface CierrePendiente {
   partidoId: string;
   clientClosureId: string;
   createdAt: string;
+  cuartoActual?: number;
+  segundosRestantesCuarto?: number;
 }
 export interface EventoLocal extends Evento {
   synced?: boolean;
+  syncStatus?: 'pending' | 'syncing' | 'synced' | 'failed';
+  syncError?: string | null;
   /** Evento de partido de pruebas locales (no se sincroniza). */
   isTest?: boolean;
   segundosRestantesCuarto?: number;
   tiempoPartidoSegundos?: number;
 }
+export interface EventoAnuladoLocal {
+  eventId: string;
+  partidoId: string;
+  createdAt: string;
+  synced?: boolean;
+  syncStatus?: 'pending' | 'syncing' | 'synced' | 'failed';
+  syncError?: string | null;
+  isTest?: boolean;
+}
 export interface IncidenciaLocal extends Incidencia {
   synced?: boolean;
+  syncStatus?: 'pending' | 'syncing' | 'synced' | 'failed';
+  syncError?: string | null;
   /** Incidencia de partido de pruebas locales (no se sincroniza). */
   isTest?: boolean;
 }
@@ -42,6 +60,7 @@ export class CapturaDB extends Dexie {
   partidos!: Table<PartidoLocal, string>;
   plantilla!: Table<PlantillaPartido, string>;
   eventos!: Table<EventoLocal, string>;
+  eventosAnulados!: Table<EventoAnuladoLocal, string>;
   incidencias!: Table<IncidenciaLocal, string>;
   fotosCierre!: Table<FotoCierre, string>;
   cierresPendientes!: Table<CierrePendiente, string>;
@@ -82,6 +101,20 @@ export class CapturaDB extends Dexie {
       plantilla: 'id, partidoId, equipoId, jugadorId',
       eventos: 'id, partidoId, orden',
       incidencias: 'id, partidoId',
+      fotosCierre: 'partidoId',
+      cierresPendientes: 'id, partidoId',
+      session: 'key',
+    });
+    this.version(4).stores({
+      ligas: 'id',
+      equipos: 'id, ligaId',
+      jugadores: 'id, equipoId',
+      canchas: 'id, ligaId, sedeId',
+      partidos: 'id, ligaId, fecha, estado',
+      plantilla: 'id, partidoId, equipoId, jugadorId',
+      eventos: 'id, partidoId, orden, syncStatus',
+      eventosAnulados: 'eventId, partidoId, syncStatus',
+      incidencias: 'id, partidoId, syncStatus',
       fotosCierre: 'partidoId',
       cierresPendientes: 'id, partidoId',
       session: 'key',

@@ -5,7 +5,7 @@ import { db } from '@/lib/db';
 import { api } from '@/lib/api';
 import { usePartidoStore } from '@/store/partidoStore';
 import type { PlantillaPartido } from '@/types/entities';
-import type { Jugador, Equipo } from '@/types/entities';
+import type { Jugador } from '@/types/entities';
 import type { EventoLocal } from '@/lib/db';
 
 export default function ConfigMesa() {
@@ -13,7 +13,8 @@ export default function ConfigMesa() {
   const navigate = useNavigate();
   const usuarioId = useAuthStore((s) => s.usuario?.id);
   const isAdminLiga = useAuthStore((s) => s.hasRole('admin_liga'));
-  const { partidoActual, plantilla, setPartidoActual, setPlantilla, loadPartido } = usePartidoStore();
+  const { partidoActual, setPartidoActual, setPlantilla, loadPartido } = usePartidoStore();
+  const isJugadorExpulsado = usePartidoStore((s) => s.isJugadorExpulsado);
   const [partido, setPartido] = useState(partidoActual);
   const [localJugadores, setLocalJugadores] = useState<Jugador[]>([]);
   const [visitanteJugadores, setVisitanteJugadores] = useState<Jugador[]>([]);
@@ -45,8 +46,13 @@ export default function ConfigMesa() {
       setLocalJugadores(loc);
       setVisitanteJugadores(vis);
       const pl = await db.plantilla.where('partidoId').equals(partidoId).toArray();
-      const locCancha = new Set(pl.filter((x) => x.equipoId === p.localEquipoId && x.enCanchaInicial).map((x) => x.jugadorId));
-      const visCancha = new Set(pl.filter((x) => x.equipoId === p.visitanteEquipoId && x.enCanchaInicial).map((x) => x.jugadorId));
+      const state = usePartidoStore.getState();
+      const locCancha = p.estado === 'en_curso'
+        ? new Set(state.getJugadoresEnCancha(p.localEquipoId).map((x) => x.jugadorId))
+        : new Set(pl.filter((x) => x.equipoId === p.localEquipoId && x.enCanchaInicial).map((x) => x.jugadorId));
+      const visCancha = p.estado === 'en_curso'
+        ? new Set(state.getJugadoresEnCancha(p.visitanteEquipoId).map((x) => x.jugadorId))
+        : new Set(pl.filter((x) => x.equipoId === p.visitanteEquipoId && x.enCanchaInicial).map((x) => x.jugadorId));
       setLocalEnCancha(locCancha);
       setVisitanteEnCancha(visCancha);
       const capL = pl.find((x) => x.equipoId === p.localEquipoId && x.esCapitan)?.jugadorId ?? null;
@@ -61,6 +67,7 @@ export default function ConfigMesa() {
   }, [partidoId, navigate, loadPartido, setPartidoActual]);
 
   const toggleEnCancha = (equipoId: string, jugadorId: string) => {
+    if (isJugadorExpulsado(jugadorId)) return;
     if (partido?.localEquipoId === equipoId) {
       const next = new Set(localEnCancha);
       if (next.has(jugadorId)) {
@@ -99,16 +106,14 @@ export default function ConfigMesa() {
     if (!partidoId || !partido || !canGuardar) return;
     setSaving(true);
     try {
+      const isTest = Boolean((partido as any)?.isTest);
+      const plActual = await db.plantilla.where('partidoId').equals(partidoId).toArray();
+
       // Si el partido ya está en curso, estos cambios representan sustituciones.
       // Registramos eventos de sustitución para que a futuro se pueda calcular "minutos jugados".
       if (yaIniciado) {
-        const plActual = await db.plantilla.where('partidoId').equals(partidoId).toArray();
-        const prevLocal = new Set(
-          plActual.filter((x) => x.equipoId === partido.localEquipoId && x.enCanchaInicial).map((x) => x.jugadorId)
-        );
-        const prevVisit = new Set(
-          plActual.filter((x) => x.equipoId === partido.visitanteEquipoId && x.enCanchaInicial).map((x) => x.jugadorId)
-        );
+        const prevLocal = new Set(usePartidoStore.getState().getJugadoresEnCancha(partido.localEquipoId).map((x) => x.jugadorId));
+        const prevVisit = new Set(usePartidoStore.getState().getJugadoresEnCancha(partido.visitanteEquipoId).map((x) => x.jugadorId));
 
         const diff = (prev: Set<string>, next: Set<string>) => {
           const salen: string[] = [];
@@ -142,6 +147,7 @@ export default function ConfigMesa() {
             orden: orden++,
             createdAt: nowIso,
             synced: false,
+            isTest,
             segundosRestantesCuarto: snap.segundosRestantesCuarto,
             tiempoPartidoSegundos: snap.tiempoPartidoSegundos,
           });
@@ -156,12 +162,13 @@ export default function ConfigMesa() {
       }
 
       const items: Omit<PlantillaPartido, 'id' | 'createdAt' | 'updatedAt'>[] = [];
+      const initialFlags = new Map(plActual.map((item) => [item.jugadorId, item.enCanchaInicial]));
       const add = (equipoId: string, jugadorId: string, enCancha: boolean, capitan: boolean, coach: boolean) => {
         items.push({
           partidoId,
           equipoId,
           jugadorId,
-          enCanchaInicial: enCancha,
+          enCanchaInicial: yaIniciado ? Boolean(initialFlags.get(jugadorId)) : enCancha,
           esCapitan: capitan,
           esCoach: coach,
           invitado: false,
@@ -183,11 +190,30 @@ export default function ConfigMesa() {
         });
       }
       setPlantilla(await db.plantilla.where('partidoId').equals(partidoId).toArray());
-      await db.partidos.update(partidoId, { estado: 'en_curso', updatedAt: new Date().toISOString() });
-      try {
-        await api('/partidos/' + partidoId + '/plantilla', { method: 'POST', body: { items } });
-        if (!yaIniciado) await api('/partidos/' + partidoId, { method: 'PATCH', body: { estado: 'en_curso' } });
-      } catch (_) {}
+      await db.partidos.update(partidoId, {
+        estado: 'en_curso',
+        updatedAt: new Date().toISOString(),
+        plantillaSynced: isTest,
+        plantillaSyncStatus: isTest ? 'synced' : 'pending',
+        plantillaSyncError: null,
+      });
+      if (!isTest) {
+        try {
+          await api('/partidos/' + partidoId + '/plantilla', { method: 'POST', body: { items } });
+          if (!yaIniciado) await api('/partidos/' + partidoId, { method: 'PATCH', body: { estado: 'en_curso' } });
+          await db.partidos.update(partidoId, {
+            plantillaSynced: true,
+            plantillaSyncStatus: 'synced',
+            plantillaSyncError: null,
+          });
+        } catch (err) {
+          await db.partidos.update(partidoId, {
+            plantillaSynced: false,
+            plantillaSyncStatus: 'failed',
+            plantillaSyncError: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
       navigate(`/partido/${partidoId}/captura`);
     } finally {
       setSaving(false);
@@ -196,19 +222,39 @@ export default function ConfigMesa() {
 
   if (!partido) return <div className="p-4 text-slate-400">Cargando...</div>;
 
-  const renderEquipo = (equipoId: string, jugadores: Jugador[], enCancha: Set<string>, setCapitan: (id: string | null) => void, setCoach: (id: string | null) => void, capitan: string | null, coach: string | null) => (
+  const renderEquipo = (
+    equipoId: string,
+    jugadores: Jugador[],
+    enCancha: Set<string>,
+    setCapitan: (id: string | null) => void,
+    setCoach: (id: string | null) => void,
+    capitan: string | null,
+    coach: string | null
+  ) => (
     <div className="rounded-xl bg-slate-800 border border-slate-700 p-4 mb-4">
       <div className="flex flex-wrap gap-2 mb-2">
         {jugadores.map((j) => (
           <div key={j.id} className="flex items-center gap-2">
+            {(() => {
+              const expulsado = isJugadorExpulsado(j.id);
+              const disabled = expulsado;
+              return (
             <button
               type="button"
               onClick={() => toggleEnCancha(equipoId, j.id)}
-              className={`px-3 py-2 rounded-lg font-medium min-w-[44px] ${enCancha.has(j.id) ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-400'}`}
+              disabled={disabled}
+              className={`px-3 py-2 rounded-lg font-medium min-w-[44px] ${
+                enCancha.has(j.id) ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-400'
+              } ${disabled ? 'opacity-50 cursor-not-allowed border border-red-700' : ''}`}
+              title={expulsado ? 'Jugador expulsado: no puede volver a entrar' : undefined}
             >
               {j.numero}
             </button>
-            <span className="text-sm text-slate-300">{j.nombre} {j.apellido}</span>
+              );
+            })()}
+            <span className={`text-sm ${isJugadorExpulsado(j.id) ? 'text-slate-500 line-through' : 'text-slate-300'}`}>
+              {j.nombre} {j.apellido}
+            </span>
             <select
               value={capitan === j.id ? 'capitan' : coach === j.id ? 'coach' : ''}
               onChange={(e) => {
@@ -220,7 +266,8 @@ export default function ConfigMesa() {
                   if (coach === j.id) setCoach(null);
                 }
               }}
-              className="text-xs bg-slate-700 rounded px-1 py-0.5"
+              disabled={isJugadorExpulsado(j.id)}
+              className={`text-xs rounded px-1 py-0.5 ${isJugadorExpulsado(j.id) ? 'bg-slate-800 text-slate-600' : 'bg-slate-700'}`}
             >
               <option value="">—</option>
               <option value="capitan">Capitán</option>

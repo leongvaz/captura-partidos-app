@@ -30,7 +30,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     const byUsuario = new Map<
       string,
-      { usuario: { id: string; nombre: string; pinHash: string | null; isSuperAdmin: boolean }; roles: string[] }
+      { usuario: { id: string; nombre: string; pinHash: string | null; isSuperAdmin: boolean; activo: boolean; curp?: string | null }; roles: string[] }
     >();
     for (const m of membresias) {
       if (!byUsuario.has(m.usuarioId)) {
@@ -39,7 +39,7 @@ export async function authRoutes(app: FastifyInstance) {
       byUsuario.get(m.usuarioId)!.roles.push(m.rol);
     }
 
-    let usuarioEncontrado: { id: string; nombre: string; pinHash: string | null; isSuperAdmin: boolean } | null = null;
+    let usuarioEncontrado: { id: string; nombre: string; pinHash: string | null; isSuperAdmin: boolean; activo: boolean; curp?: string | null } | null = null;
     let roles: string[] = [];
 
     for (const { usuario, roles: r } of byUsuario.values()) {

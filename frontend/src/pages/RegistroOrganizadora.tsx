@@ -205,7 +205,7 @@ export default function RegistroOrganizadora() {
                 !ligaId ||
                 !!ligaError ||
                 ligaCargando ||
-                (ligaId && !ligaNombre)
+                Boolean(ligaId && !ligaNombre)
               }
               size="lg"
               className="w-full mt-1"

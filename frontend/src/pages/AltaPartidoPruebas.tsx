@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
-import { db, type PartidoLocal } from '@/lib/db';
-import type { Cancha, Equipo, Jugador, PlantillaPartido } from '@/types/entities';
+import { api } from '@/lib/api';
+import { db } from '@/lib/db';
+import type { Cancha, Equipo, Jugador, Partido, PlantillaPartido } from '@/types/entities';
 
 function parseJugadores(text: string): { numero: number; nombre: string; apellido: string }[] {
   const lines = (text || '')
@@ -25,6 +26,14 @@ function parseJugadores(text: string): { numero: number; nombre: string; apellid
   }
   return out;
 }
+
+type AltaRapidaResponse = {
+  partido: Partido;
+  equipos: Equipo[];
+  cancha: Cancha;
+  jugadores: Jugador[];
+  plantilla: PlantillaPartido[];
+};
 
 export default function AltaPartidoPruebas() {
   const [searchParams] = useSearchParams();
@@ -60,113 +69,39 @@ export default function AltaPartidoPruebas() {
 
     const parsedA = parseJugadores(jugadoresA);
     const parsedB = parseJugadores(jugadoresB);
-    if (parsedA.length === 0 || parsedB.length === 0) {
-      alert('Agrega al menos 1 jugador por equipo. Formato: "7 Juan Hernández" (uno por línea).');
+    if (parsedA.length < 5 || parsedB.length < 5) {
+      alert('Agrega al menos 5 jugadores por equipo. Formato: "7 Juan Hernández" (uno por línea).');
       return;
     }
 
     setSaving(true);
     try {
-      const now = new Date().toISOString();
-      const partidoId = crypto.randomUUID();
-      const equipoAId = crypto.randomUUID();
-      const equipoBId = crypto.randomUUID();
-      const canchaId = crypto.randomUUID();
+      const res = await api<AltaRapidaResponse>('/partidos/alta-rapida', {
+        method: 'POST',
+        body: {
+          fecha,
+          horaInicio,
+          categoria,
+          equipoA: equipoA.trim(),
+          equipoB: equipoB.trim(),
+          cancha: (cancha || sede || 'Cancha pruebas').trim(),
+          jugadoresA: parsedA,
+          jugadoresB: parsedB,
+        },
+      });
 
-      const eqA: Equipo = {
-        id: equipoAId,
-        ligaId,
-        nombre: equipoA.trim(),
-        categoria,
-        activo: true,
-        createdAt: now,
-        updatedAt: now,
-      };
-      const eqB: Equipo = {
-        id: equipoBId,
-        ligaId,
-        nombre: equipoB.trim(),
-        categoria,
-        activo: true,
-        createdAt: now,
-        updatedAt: now,
-      };
+      for (const equipo of res.equipos) {
+        await db.equipos.put(equipo);
+      }
+      await db.canchas.put(res.cancha);
+      await db.partidos.put({ ...res.partido, synced: true });
+      await db.jugadores.bulkPut(res.jugadores);
+      await db.plantilla.bulkPut(res.plantilla);
 
-      const ch: Cancha = {
-        id: canchaId,
-        ligaId,
-        sedeId: null,
-        nombre: (cancha || 'Cancha pruebas').trim(),
-        activo: true,
-      };
-
-      const partido: PartidoLocal = {
-        id: partidoId,
-        ligaId,
-        localEquipoId: eqA.id,
-        visitanteEquipoId: eqB.id,
-        canchaId: ch.id,
-        categoria,
-        fecha,
-        horaInicio,
-        estado: 'programado',
-        anotadorId: usuarioId,
-        localVersion: 1,
-        serverVersion: 0,
-        createdAt: now,
-        updatedAt: now,
-        synced: true,
-        isTest: true,
-      };
-
-      const jugadores: Jugador[] = [];
-      const plantilla: PlantillaPartido[] = [];
-
-      const crearJugadores = (equipoId: string, list: { numero: number; nombre: string; apellido: string }[]) => {
-        for (const item of list) {
-          const jugadorId = crypto.randomUUID();
-          jugadores.push({
-            id: jugadorId,
-            equipoId,
-            nombre: item.nombre,
-            apellido: item.apellido,
-            numero: item.numero,
-            invitado: false,
-            activo: true,
-            createdAt: now,
-            updatedAt: now,
-          });
-          // En modo pruebas ponemos a todos "en cancha" para que Captura liste a todos.
-          plantilla.push({
-            id: crypto.randomUUID(),
-            partidoId: partido.id,
-            equipoId,
-            jugadorId,
-            enCanchaInicial: true,
-            esCapitan: false,
-            esCoach: false,
-            invitado: false,
-            createdAt: now,
-            updatedAt: now,
-          });
-        }
-      };
-
-      crearJugadores(eqA.id, parsedA);
-      crearJugadores(eqB.id, parsedB);
-
-      // Guardado local (modo pruebas). No se sincroniza.
-      await db.equipos.put(eqA);
-      await db.equipos.put(eqB);
-      await db.canchas.put(ch);
-      await db.partidos.put(partido);
-      await db.jugadores.bulkPut(jugadores);
-      await db.plantilla.bulkPut(plantilla);
-
-      navigate(`/partido/${partido.id}/config`, { replace: true });
+      navigate(`/partido/${res.partido.id}/config`, { replace: true });
     } catch (e) {
       console.error(e);
-      alert('No se pudo crear el partido de pruebas.');
+      alert(e instanceof Error ? e.message : 'No se pudo crear el partido persistido.');
     } finally {
       setSaving(false);
     }
@@ -174,7 +109,7 @@ export default function AltaPartidoPruebas() {
 
   return (
     <div className="p-4 max-w-2xl mx-auto space-y-4">
-      <h1 className="text-xl font-bold text-slate-100">Alta rápida de partido (pruebas)</h1>
+      <h1 className="text-xl font-bold text-slate-100">Alta rápida de partido</h1>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <label className="text-sm text-slate-300">
           Fecha
@@ -296,7 +231,7 @@ export default function AltaPartidoPruebas() {
       </button>
 
       <p className="text-xs text-slate-400">
-        Nota: este modo guarda datos locales para pruebas y no intenta sincronizarlos.
+        Este flujo guarda el partido, los equipos auxiliares, la plantilla y la captura en la base de datos del backend.
       </p>
     </div>
   );

@@ -148,7 +148,14 @@ export default function PanelLiga() {
                   </tr>
                 </thead>
                 <tbody>
-                  {equiposStats.map((eq) => (
+                  {[...equiposStats]
+                    .sort((a, b) => {
+                      // PF desc, luego DIF desc, luego nombre asc
+                      if (b.PF !== a.PF) return b.PF - a.PF;
+                      if (b.DIF !== a.DIF) return b.DIF - a.DIF;
+                      return a.nombre.localeCompare(b.nombre);
+                    })
+                    .map((eq) => (
                     <tr key={eq.equipoId} className="border-b border-slate-700 text-slate-300">
                       <td className="px-3 py-2 font-medium">{eq.nombre}</td>
                       <td className="px-3 py-2 text-right">{eq.PJ}</td>

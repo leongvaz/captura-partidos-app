@@ -15,7 +15,13 @@ async function ensurePartidoEnDexie(partidoId: string): Promise<boolean> {
   if (p) return true;
   try {
     const partido = await api<Partido>(`/partidos/${partidoId}`);
-    await db.partidos.put({ ...partido, synced: true });
+    await db.partidos.put({
+      ...partido,
+      synced: true,
+      plantillaSynced: true,
+      plantillaSyncStatus: 'synced',
+      plantillaSyncError: null,
+    });
     const plantilla = await api<PlantillaPartido[]>(`/partidos/${partidoId}/plantilla`);
     for (const pl of plantilla) await db.plantilla.put(pl);
     const eventos = await api<Array<{ id: string; partidoId: string; tipo: string; jugadorId: string; jugadorEntraId?: string; minutoPartido: number; cuarto: number; orden: number; createdAt: string }>>(`/partidos/${partidoId}/eventos`);
@@ -31,14 +37,31 @@ export default function Resumen() {
   const navigate = useNavigate();
   const usuarioId = useAuthStore((s) => s.usuario?.id);
   const isAdminLiga = useAuthStore((s) => s.hasRole('admin_liga'));
-  const { partidoActual, plantilla, loadPartido, getPuntosJugador, getFaltasJugador, isJugadorExpulsado } = usePartidoStore();
+  const {
+    partidoActual,
+    plantilla,
+    loadPartido,
+    getOfficialScore,
+    getPuntosJugador,
+    getFaltasJugador,
+    isJugadorExpulsado,
+    canFinishMatch,
+    getFinishBlockReasons,
+    getCronoSnapshot,
+  } = usePartidoStore();
   const runSync = useSyncStore((s) => s.runSync);
+  const getPartidoSyncHealth = useSyncStore((s) => s.getPartidoSyncHealth);
   const [jugadoresMap, setJugadoresMap] = useState<Record<string, Jugador>>({});
   const [fotoFile, setFotoFile] = useState<File | null>(null);
   const [fotoPreview, setFotoPreview] = useState<string | null>(null);
   const [cerrando, setCerrando] = useState(false);
   const [loading, setLoading] = useState(true);
   const [equipoNombres, setEquipoNombres] = useState<Record<string, string>>({});
+  const [syncHealth, setSyncHealth] = useState<{ pending: number; failed: number; lastError: string | null }>({
+    pending: 0,
+    failed: 0,
+    lastError: null,
+  });
 
   const isConsulta = !useAuthStore((s) => s.hasRole(...ROLES_PARTIDO));
 
@@ -56,9 +79,10 @@ export default function Resumen() {
       const nombres: Record<string, string> = {};
       equipos.forEach((e) => { nombres[e.id] = e.nombre; });
       setEquipoNombres(nombres);
+      setSyncHealth(await useSyncStore.getState().getPartidoSyncHealth(partidoId));
       setLoading(false);
     })();
-  }, [partidoId, loadPartido]);
+  }, [partidoId, loadPartido, getPartidoSyncHealth]);
 
   useEffect(() => {
     if (!partidoId || !isConsulta) return;
@@ -80,11 +104,13 @@ export default function Resumen() {
 
   const partido = partidoActual;
   if (loading || !partido) return <div className="p-4 text-slate-400">Cargando...</div>;
+  const isTest = Boolean((partido as PartidoLocal).isTest);
 
   const canClosePartido = partido.anotadorId === usuarioId || isAdminLiga;
 
-  const puntosLocal = plantilla.filter((p) => p.equipoId === partido.localEquipoId).reduce((s, p) => s + getPuntosJugador(p.jugadorId), 0);
-  const puntosVisitante = plantilla.filter((p) => p.equipoId === partido.visitanteEquipoId).reduce((s, p) => s + getPuntosJugador(p.jugadorId), 0);
+  const officialScore = getOfficialScore();
+  const puntosLocal = officialScore.home;
+  const puntosVisitante = officialScore.away;
 
   const localJugadores = plantilla.filter((p) => p.equipoId === partido.localEquipoId);
   const visitanteJugadores = plantilla.filter((p) => p.equipoId === partido.visitanteEquipoId);
@@ -99,13 +125,34 @@ export default function Resumen() {
 
   const cerrarPartido = async () => {
     if (!partidoId) return;
-    if (puntosLocal === puntosVisitante) {
-      alert('No se puede cerrar el partido con empate. Agrega tiempos extra hasta que haya ganador.');
+    const closingPhotoProvided = Boolean(fotoFile);
+    const finishBlockReasons = getFinishBlockReasons(closingPhotoProvided);
+    if (!canFinishMatch(closingPhotoProvided)) {
+      const mensajes = {
+        CLOCK_NOT_EXPIRED: 'El reloj del periodo actual no ha terminado.',
+        TIED_SCORE_REQUIRES_OVERTIME: 'No se puede cerrar el partido con empate. Agrega tiempos extra hasta que haya ganador.',
+        CLOSING_PHOTO_REQUIRED: 'La foto del marcador es obligatoria para cerrar.',
+        MATCH_ALREADY_FINISHED: 'El partido ya fue cerrado.',
+        REGULATION_NOT_COMPLETED: 'El partido no está en un periodo válido para cierre.',
+      } as const;
+      alert(finishBlockReasons.map((reason) => mensajes[reason as keyof typeof mensajes] ?? reason).join('\n'));
       return;
     }
+    const clockSnapshot = getCronoSnapshot();
     setCerrando(true);
     try {
-      if (!navigator.onLine) {
+      if (isTest) {
+        await db.partidos.update(partidoId, {
+          estado: 'finalizado',
+          folio: null,
+          fotoMarcadorUrl: null,
+          cerradoAt: new Date().toISOString(),
+          marcadorLocalFinal: puntosLocal,
+          marcadorVisitanteFinal: puntosVisitante,
+          closurePending: false,
+        });
+        await loadPartido(partidoId);
+      } else if (!navigator.onLine) {
         const clientClosureId = crypto.randomUUID();
         if (fotoFile) await db.fotosCierre.put({ partidoId, blob: fotoFile });
         await db.cierresPendientes.add({
@@ -113,6 +160,8 @@ export default function Resumen() {
           partidoId,
           clientClosureId,
           createdAt: new Date().toISOString(),
+          cuartoActual: clockSnapshot.cuartoActual,
+          segundosRestantesCuarto: clockSnapshot.segundosRestantesCuarto,
         });
         await db.partidos.update(partidoId, {
           estado: 'finalizado',
@@ -126,7 +175,28 @@ export default function Resumen() {
         await loadPartido(partidoId);
       } else {
         await runSync();
-        const body = fotoFile ? (() => { const f = new FormData(); f.append('fotoMarcador', fotoFile); return f; })() : {};
+        const health = await useSyncStore.getState().getPartidoSyncHealth(partidoId);
+        setSyncHealth(health);
+        if (health.pending > 0 || health.failed > 0) {
+          alert(
+            `No se puede cerrar todavía. Hay ${health.pending} cambios pendientes y ${health.failed} con error de sincronización.` +
+              (health.lastError ? `\n${health.lastError}` : '')
+          );
+          return;
+        }
+        const body = (() => {
+          if (fotoFile) {
+            const f = new FormData();
+            f.append('fotoMarcador', fotoFile);
+            f.append('cuartoActual', String(clockSnapshot.cuartoActual));
+            f.append('segundosRestantesCuarto', String(clockSnapshot.segundosRestantesCuarto));
+            return f;
+          }
+          return {
+            cuartoActual: clockSnapshot.cuartoActual,
+            segundosRestantesCuarto: clockSnapshot.segundosRestantesCuarto,
+          };
+        })();
         const res = await api<{ partido: { fotoMarcadorUrl?: string | null; marcadorLocalFinal?: number; marcadorVisitanteFinal?: number }; folio: string }>(
           '/partidos/' + partidoId + '/cerrar',
           {
@@ -176,6 +246,15 @@ export default function Resumen() {
         <div className="mb-4 rounded-lg bg-amber-900/80 border border-amber-600 px-3 py-2 text-amber-200 text-sm">
           <p className="font-medium">Pendiente de sincronizar</p>
           <p>Conecta a internet y pulsa Sincronizar para obtener el folio y el acta oficial.</p>
+        </div>
+      )}
+      {(syncHealth.pending > 0 || syncHealth.failed > 0) && !isTest && (
+        <div className="mb-4 rounded-lg bg-amber-900/80 border border-amber-600 px-3 py-2 text-amber-200 text-sm">
+          <p className="font-medium">Acta oficial pendiente de sincronización</p>
+          <p>
+            Hay {syncHealth.pending} cambios pendientes y {syncHealth.failed} con error. El acta/PDF del servidor puede no coincidir hasta sincronizar.
+          </p>
+          {syncHealth.lastError && <p className="mt-1 text-xs">{syncHealth.lastError}</p>}
         </div>
       )}
       {ganadorNombre && (partido.estado === 'finalizado' || partido.estado === 'default_local' || partido.estado === 'default_visitante') && (
@@ -230,6 +309,11 @@ export default function Resumen() {
           {fotoPreview && (
             <img src={fotoPreview} alt="Marcador" className="mt-2 rounded-lg max-h-48 object-contain bg-slate-800" />
           )}
+          {isTest && (
+            <p className="mt-2 text-xs text-amber-300">
+              Partido de pruebas: el cierre se guarda solo localmente y no genera acta oficial en backend.
+            </p>
+          )}
         </div>
       ) : (
         <p className="text-sm text-slate-400 mb-4">Vista de solo lectura. No puedes cerrar este partido.</p>
@@ -241,10 +325,10 @@ export default function Resumen() {
           onClick={cerrarPartido}
           className="w-full py-3 rounded-lg bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white font-medium"
         >
-          {cerrando ? 'Cerrando...' : !navigator.onLine ? 'Cerrar localmente (se sincronizará cuando haya conexión)' : 'Cerrar partido y generar acta'}
+          {cerrando ? 'Cerrando...' : isTest ? 'Cerrar partido de pruebas' : !navigator.onLine ? 'Cerrar localmente (se sincronizará cuando haya conexión)' : 'Cerrar partido y generar acta'}
         </button>
       )}
-      {yaCerrado && partido.folio && !closurePending && (
+      {yaCerrado && partido.folio && !closurePending && !isTest && (
         <button
           type="button"
           onClick={() => navigate(`/partido/${partidoId}/acta`)}

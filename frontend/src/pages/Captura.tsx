@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 import { db } from '@/lib/db';
@@ -17,7 +17,13 @@ async function ensurePartidoEnDexie(partidoId: string): Promise<boolean> {
   if (p) return true;
   try {
     const partido = await api<Partido>(`/partidos/${partidoId}`);
-    await db.partidos.put({ ...partido, synced: true });
+    await db.partidos.put({
+      ...partido,
+      synced: true,
+      plantillaSynced: true,
+      plantillaSyncStatus: 'synced',
+      plantillaSyncError: null,
+    });
     const plantilla = await api<PlantillaPartido[]>(`/partidos/${partidoId}/plantilla`);
     for (const pl of plantilla) await db.plantilla.put(pl);
     const eventos = await api<Array<{ id: string; partidoId: string; tipo: string; jugadorId: string; jugadorEntraId?: string; minutoPartido: number; cuarto: number; orden: number; createdAt: string }>>(`/partidos/${partidoId}/eventos`);
@@ -36,7 +42,6 @@ export default function Captura() {
   const {
     partidoActual,
     plantilla,
-    eventos,
     jugadorSeleccionadoId,
     setPartidoActual,
     loadPartido,
@@ -45,18 +50,33 @@ export default function Captura() {
     agregarEvento,
     deshacerUltimoEvento,
     getJugadoresEnCancha,
+    getOfficialScore,
     getPuntosJugador,
     getFaltasJugador,
     getFaltasPersonalesJugador,
     getFaltasAntideportivasJugador,
     getFaltasTecnicasJugador,
     isJugadorExpulsado,
+    getTeamFoulsByPeriod,
   } = usePartidoStore();
   const [equipoActivo, setEquipoActivo] = useState<'local' | 'visitante'>('local');
   const [jugadoresMap, setJugadoresMap] = useState<Record<string, Jugador>>({});
-  const [showTL, setShowTL] = useState(false);
   const [showFaltaTipo, setShowFaltaTipo] = useState(false);
   const [modalExpulsado, setModalExpulsado] = useState(false);
+  const sustitucionEnProcesoRef = useRef(false);
+  const [sustituyendoId, setSustituyendoId] = useState<string | null>(null);
+  const [modalSustitucion, setModalSustitucion] = useState<{
+    equipoId: string;
+    equipoLabel: 'Local' | 'Visitante';
+    expulsadoJugadorId: string;
+    candidatos: string[];
+  } | null>(null);
+
+  // Si cambias de equipo, se resetea el jugador seleccionado (evita anotar al equipo equivocado).
+  useEffect(() => {
+    seleccionarJugador(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [equipoActivo]);
 
   useEffect(() => {
     if (!partidoId) return;
@@ -99,8 +119,16 @@ export default function Captura() {
   const expulsadosEnCancha = [...enCanchaLocal, ...enCanchaVisitante]
     .map((pl) => ({ pl, j: jugadoresMap[pl.jugadorId] }))
     .filter(({ j }) => j && isJugadorExpulsado(j.id)) as { pl: PlantillaPartido; j: Jugador }[];
-  const puntosLocal = plantilla.filter((p) => p.equipoId === partido.localEquipoId).reduce((s, p) => s + getPuntosJugador(p.jugadorId), 0);
-  const puntosVisitante = plantilla.filter((p) => p.equipoId === partido.visitanteEquipoId).reduce((s, p) => s + getPuntosJugador(p.jugadorId), 0);
+  const officialScore = getOfficialScore();
+  const puntosLocal = officialScore.home;
+  const puntosVisitante = officialScore.away;
+
+  const { cuartoActual } = usePartidoStore.getState().getCronoSnapshot();
+  const faltasLocalCuarto = getTeamFoulsByPeriod(partido.localEquipoId, cuartoActual);
+  const faltasVisitCuarto = getTeamFoulsByPeriod(partido.visitanteEquipoId, cuartoActual);
+  const bonusLocal = faltasLocalCuarto >= 5;
+  const bonusVisit = faltasVisitCuarto >= 5;
+  const ultimosEventos = usePartidoStore.getState().eventos.slice(-6).reverse();
 
   const handleEvento = async (tipo: TipoEvento) => {
     if (tipo === 'tiro_libre_anotado' || tipo === 'tiro_libre_fallado') {
@@ -109,10 +137,18 @@ export default function Captura() {
         setModalExpulsado(true);
         return;
       }
-      await agregarEvento('tiro_libre_anotado');
+      await agregarEvento(tipo);
       return;
     }
-    if (tipo === 'falta_personal' || tipo === 'falta_antideportiva' || tipo === 'falta_tecnica') {
+    if (tipo === 'tiempo_fuera') {
+      const jugadorReferencia = jugadorSeleccionadoId ?? enCancha[0]?.jugadorId;
+      if (!jugadorReferencia) return;
+      seleccionarJugador(jugadorReferencia);
+      await agregarEvento(tipo);
+      seleccionarJugador(jugadorSeleccionadoId);
+      return;
+    }
+    if (tipo === 'falta_personal' || tipo === 'falta_antideportiva' || tipo === 'falta_tecnica' || tipo === 'falta_descalificante') {
       if (!jugadorSeleccionadoId) return;
       if (isJugadorExpulsado(jugadorSeleccionadoId)) {
         setModalExpulsado(true);
@@ -129,7 +165,7 @@ export default function Captura() {
     await agregarEvento(tipo);
   };
 
-  const handleFaltaTipo = async (tipo: 'falta_personal' | 'falta_antideportiva' | 'falta_tecnica') => {
+  const handleFaltaTipo = async (tipo: 'falta_personal' | 'falta_antideportiva' | 'falta_tecnica' | 'falta_descalificante') => {
     if (!jugadorSeleccionadoId || !partido) return;
     setShowFaltaTipo(false);
     await agregarEvento(tipo);
@@ -140,8 +176,9 @@ export default function Captura() {
     if (isJugadorExpulsado(jugadorSeleccionadoId)) {
       const pl = plantilla.find((p) => p.jugadorId === jugadorSeleccionadoId);
       const equipoId = pl?.equipoId ?? partido.localEquipoId;
-      let tipoIncidencia: 'expulsion_antideportivas' | 'expulsion_tecnicas' = 'expulsion_tecnicas';
-      if (antideportivas >= 2) tipoIncidencia = 'expulsion_antideportivas';
+      let tipoIncidencia: 'expulsion_antideportivas' | 'expulsion_tecnicas' | 'expulsion_descalificante' | 'expulsion_faltas' = 'expulsion_faltas';
+      if (tipo === 'falta_descalificante') tipoIncidencia = 'expulsion_descalificante';
+      else if (antideportivas >= 2) tipoIncidencia = 'expulsion_antideportivas';
       else if (tecnicas >= 2) tipoIncidencia = 'expulsion_tecnicas';
       else if (antideportivas >= 1 && tecnicas >= 1) tipoIncidencia = 'expulsion_tecnicas';
       await db.incidencias.add({
@@ -150,7 +187,14 @@ export default function Captura() {
         tipo: tipoIncidencia,
         equipoId,
         jugadorId: jugadorSeleccionadoId,
-        motivo: tipoIncidencia === 'expulsion_antideportivas' ? '2 faltas antideportivas' : '2 faltas técnicas o 1+1',
+        motivo:
+          tipoIncidencia === 'expulsion_descalificante'
+            ? 'Falta descalificante directa'
+            : tipoIncidencia === 'expulsion_antideportivas'
+              ? '2 faltas antideportivas'
+              : tipoIncidencia === 'expulsion_tecnicas'
+                ? '2 faltas técnicas o 1+1'
+                : '5 faltas acumuladas',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         synced: false,
@@ -165,6 +209,34 @@ export default function Captura() {
         alert(`🚫 ${j.nombre} ${j.apellido} (#${j.numero}) tiene 5 faltas – debe salir.`);
       } else if (isJugadorExpulsado(jugadorSeleccionadoId)) {
         alert(`🚫 ${j.nombre} ${j.apellido} (#${j.numero}) expulsado (2 antideportivas/técnicas o 5 personales).`);
+      }
+    }
+
+    // Si el jugador quedó expulsado y su equipo se queda con <5 en cancha, ofrecer meter a alguien de banca.
+    if (isJugadorExpulsado(jugadorSeleccionadoId)) {
+      const pl = plantilla.find((p) => p.jugadorId === jugadorSeleccionadoId);
+      const equipoJugadorId = pl?.equipoId;
+      if (equipoJugadorId) {
+        const enCanchaEquipo = getJugadoresEnCancha(equipoJugadorId);
+        if (enCanchaEquipo.length < 5) {
+          const idsEnCancha = new Set(enCanchaEquipo.map((x) => x.jugadorId));
+          const candidatos = plantilla
+            .filter((p) => p.equipoId === equipoJugadorId)
+            .map((p) => p.jugadorId)
+            .filter((id) => !idsEnCancha.has(id))
+            .filter((id) => !isJugadorExpulsado(id));
+
+          if (candidatos.length > 0) {
+            sustitucionEnProcesoRef.current = false;
+            setSustituyendoId(null);
+            setModalSustitucion({
+              equipoId: equipoJugadorId,
+              equipoLabel: equipoJugadorId === partido.localEquipoId ? 'Local' : 'Visitante',
+              expulsadoJugadorId: jugadorSeleccionadoId,
+              candidatos,
+            });
+          }
+        }
       }
     }
   };
@@ -241,6 +313,7 @@ export default function Captura() {
             <button type="button" onClick={() => handleFaltaTipo('falta_personal')} className="flex-1 min-w-[80px] py-3 rounded-xl bg-red-600 text-white font-bold">Normal</button>
             <button type="button" onClick={() => handleFaltaTipo('falta_tecnica')} className="flex-1 min-w-[80px] py-3 rounded-xl bg-orange-600 text-white font-bold">Técnica</button>
             <button type="button" onClick={() => handleFaltaTipo('falta_antideportiva')} className="flex-1 min-w-[80px] py-3 rounded-xl bg-rose-700 text-white font-bold">Antideportiva</button>
+            <button type="button" onClick={() => handleFaltaTipo('falta_descalificante')} className="flex-1 min-w-[80px] py-3 rounded-xl bg-red-900 text-white font-bold">Descalificante</button>
             <button type="button" onClick={() => setShowFaltaTipo(false)} className="px-4 py-2 rounded-lg bg-slate-700 text-slate-300">Cancelar</button>
           </div>
         </div>
@@ -250,6 +323,7 @@ export default function Captura() {
           <button type="button" onClick={() => handleEvento('punto_3')} className="flex-1 min-w-[70px] py-4 rounded-xl bg-blue-600 text-white font-bold text-lg">+3</button>
           <button type="button" onClick={() => handleEvento('tiro_libre_anotado')} className="flex-1 min-w-[70px] py-4 rounded-xl bg-amber-600 text-white font-bold">TL</button>
           <button type="button" onClick={() => handleEvento('falta_personal')} className="flex-1 min-w-[70px] py-4 rounded-xl bg-red-600 text-white font-bold">Falta</button>
+          <button type="button" onClick={() => handleEvento('tiempo_fuera')} className="flex-1 min-w-[70px] py-4 rounded-xl bg-slate-600 text-white font-bold">TO</button>
         </div>
       )}
       {modalExpulsado && (
@@ -261,6 +335,73 @@ export default function Captura() {
           </div>
         </div>
       )}
+      {modalSustitucion && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setModalSustitucion(null)}>
+          <div className="bg-slate-800 rounded-xl border border-slate-600 p-6 max-w-md w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <p className="text-slate-100 mb-1 font-semibold">Equipo {modalSustitucion.equipoLabel} con 4 en cancha</p>
+            <p className="text-sm text-slate-400 mb-4">
+              Hay jugadores en la banca. Selecciona a quién meter.
+            </p>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {modalSustitucion.candidatos.map((id) => {
+                const j = jugadoresMap[id];
+                const label = j ? `#${j.numero} ${j.nombre} ${j.apellido}` : id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    disabled={sustituyendoId !== null}
+                    onClick={async () => {
+                      if (sustitucionEnProcesoRef.current) return;
+                      const equipoEnCancha = usePartidoStore.getState().getJugadoresEnCancha(modalSustitucion.equipoId);
+                      if (equipoEnCancha.length >= 5) {
+                        setModalSustitucion(null);
+                        return;
+                      }
+                      sustitucionEnProcesoRef.current = true;
+                      setSustituyendoId(id);
+                      try {
+                        // Forzamos el equipo activo al del jugador expulsado para coherencia visual.
+                        setEquipoActivo(modalSustitucion.equipoId === partido.localEquipoId ? 'local' : 'visitante');
+                        seleccionarJugador(id);
+                        await agregarEvento('sustitucion_entra');
+                        seleccionarJugador(null);
+                        setModalSustitucion(null);
+                      } finally {
+                        setSustituyendoId(null);
+                        sustitucionEnProcesoRef.current = false;
+                      }
+                    }}
+                    className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium"
+                  >
+                    {sustituyendoId === id ? 'Entrando...' : label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEquipoActivo(modalSustitucion.equipoId === partido.localEquipoId ? 'local' : 'visitante');
+                  setModalSustitucion(null);
+                  navigate(`/partido/${partidoId}/mesa`);
+                }}
+                className="flex-1 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium"
+              >
+                Ir a configuración de mesa
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalSustitucion(null)}
+                className="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
+              >
+                Ahora no
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <button
         type="button"
         onClick={deshacerUltimoEvento}
@@ -268,7 +409,40 @@ export default function Captura() {
       >
         Deshacer último evento
       </button>
+      {ultimosEventos.length > 0 && (
+        <div className="rounded-lg bg-slate-900/50 border border-slate-700 p-3 mb-3 text-xs text-slate-400">
+          <p className="font-medium text-slate-300 mb-2">Últimos eventos</p>
+          <div className="space-y-1">
+            {ultimosEventos.map((ev) => {
+              const j = jugadoresMap[ev.jugadorId];
+              return (
+                <div key={ev.id} className="flex justify-between gap-2">
+                  <span>#{ev.orden} {ev.tipo}</span>
+                  <span className="text-right">{j ? `#${j.numero} ${j.apellido}` : ev.jugadorId}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div className="mt-auto rounded-lg bg-slate-800/80 border border-slate-700 p-3 mb-3 text-xs text-slate-400 overflow-x-auto">
+        <div className="mb-2 rounded-lg bg-slate-900/60 border border-slate-700 px-3 py-2 text-xs text-slate-300">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 justify-between">
+            <span>
+              Cuarto {cuartoActual} · Faltas equipo Local: <span className={bonusLocal ? 'text-amber-300 font-semibold' : ''}>{faltasLocalCuarto}</span>
+              {bonusLocal ? ' (BONUS)' : ''}
+            </span>
+            <span>
+              Faltas equipo Visitante: <span className={bonusVisit ? 'text-amber-300 font-semibold' : ''}>{faltasVisitCuarto}</span>
+              {bonusVisit ? ' (BONUS)' : ''}
+            </span>
+          </div>
+          {(bonusLocal || bonusVisit) && (
+            <div className="mt-1 text-amber-200">
+              Al llegar a 5 faltas de equipo en el cuarto, las faltas posteriores pueden dar tiros libres al rival.
+            </div>
+          )}
+        </div>
         <p className="font-medium text-slate-300 mb-2">Vista rápida (en cancha)</p>
         <table className="w-full border-collapse text-left">
           <thead>

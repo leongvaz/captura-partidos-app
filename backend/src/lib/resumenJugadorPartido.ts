@@ -1,6 +1,5 @@
 import { prisma } from './prisma.js';
-
-const FALTA_TIPOS = ['falta_personal', 'falta_tecnica', 'falta_antideportiva'] as const;
+import { deriveBackendMatchState } from './matchDomain.js';
 
 const ESTADOS_CON_RESUMEN = ['finalizado', 'default_local', 'default_visitante'] as const;
 
@@ -27,23 +26,7 @@ export async function syncResumenesPartido(partidoId: string): Promise<void> {
   });
   const personaPorJugador = Object.fromEntries(jugadores.map((j) => [j.id, j.personaId]));
 
-  type Acum = { p2: number; p3: number; tl: number; faltas: number };
-  const stats: Record<string, Acum> = {};
-  for (const jid of jugadorIds) stats[jid] = { p2: 0, p3: 0, tl: 0, faltas: 0 };
-
-  if (partido.estado === 'finalizado') {
-    for (const e of partido.eventos) {
-      const j = e.jugadorId;
-      if (!stats[j]) continue;
-      if (e.tipo === 'punto_2') stats[j].p2++;
-      else if (e.tipo === 'punto_3') stats[j].p3++;
-      else if (e.tipo === 'tiro_libre_anotado') stats[j].tl++;
-      else if (FALTA_TIPOS.includes(e.tipo as (typeof FALTA_TIPOS)[number])) stats[j].faltas++;
-    }
-    for (const j of Object.keys(stats)) {
-      stats[j].faltas = Math.min(5, stats[j].faltas);
-    }
-  }
+  const domainState = deriveBackendMatchState(partido);
 
   const plantillaPorJugador = new Map<string, (typeof partido.plantilla)[0]>();
   for (const pl of partido.plantilla) {
@@ -66,18 +49,17 @@ export async function syncResumenesPartido(partidoId: string): Promise<void> {
   for (const jid of jugadorIds) {
     const pl = plantillaPorJugador.get(jid);
     if (!pl) continue;
-    const s = stats[jid] || { p2: 0, p3: 0, tl: 0, faltas: 0 };
-    const puntos = s.p2 * 2 + s.p3 * 3 + s.tl;
+    const player = domainState.players[jid];
     rows.push({
       partidoId,
       jugadorId: jid,
       personaId: personaPorJugador[jid] ?? null,
       equipoId: pl.equipoId,
-      puntos,
-      canastasDe2: s.p2,
-      canastasDe3: s.p3,
-      tirosLibresAnotados: s.tl,
-      faltas: s.faltas,
+      puntos: player?.points ?? 0,
+      canastasDe2: player?.fieldGoals2Made ?? 0,
+      canastasDe3: player?.fieldGoals3Made ?? 0,
+      tirosLibresAnotados: player?.freeThrowsMade ?? 0,
+      faltas: player?.totalFoulsForDisplay ?? 0,
       minutosJugados: null,
     });
   }

@@ -1,3 +1,5 @@
+import type { Liga, Usuario } from '@/types/entities';
+
 // const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
 const isCapacitor = typeof window !== 'undefined' && (window as any).Capacitor;
 const API_BASE =
@@ -31,7 +33,15 @@ export async function api<T>(path: string, options: ApiRequestInit = {}): Promis
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error((err as { message?: string }).message || res.statusText);
+    const anyErr = err as any;
+    // #region agent log
+    fetch('http://127.0.0.1:7895/ingest/4166f2ae-3788-45f4-8343-9dd7f8a1a95d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'19c21e'},body:JSON.stringify({sessionId:'19c21e',runId:'pre-fix',hypothesisId:'H1',location:'frontend/src/lib/api.ts:api:error',message:'API non-OK response',data:{path,method:(options.method||'GET'),status:res.status,code:anyErr?.code??null,message:anyErr?.message??null,eventId:anyErr?.eventId??null,orden:anyErr?.orden??null,tipo:anyErr?.tipo??null,jugadorId:anyErr?.jugadorId??null},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion agent log
+    const extra =
+      anyErr?.eventId || anyErr?.orden || anyErr?.tipo
+        ? ` (eventId=${anyErr?.eventId ?? '-'} orden=${anyErr?.orden ?? '-'} tipo=${anyErr?.tipo ?? '-'} jugadorId=${anyErr?.jugadorId ?? '-'})`
+        : '';
+    throw new Error(((anyErr?.message as string | undefined) || res.statusText) + extra);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -39,15 +49,8 @@ export async function api<T>(path: string, options: ApiRequestInit = {}): Promis
 
 export interface AuthResponse {
   token: string;
-  usuario: { id: string; ligaId: string; nombre: string; roles: string[]; isSuperAdmin?: boolean; curp?: string | null };
+  usuario: Usuario;
   liga: Liga;
-}
-interface Liga {
-  id: string;
-  nombre: string;
-  temporada: string;
-  categorias: string[];
-  deporte?: string;
 }
 
 export async function login(ligaId: string, pin: string): Promise<AuthResponse> {

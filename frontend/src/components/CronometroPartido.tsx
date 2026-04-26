@@ -53,9 +53,6 @@ function labelPeriodo(cuarto: number): string {
 
 export default function CronometroPartido({ partidoId }: CronometroPartidoProps) {
   const {
-    partidoActual,
-    plantilla,
-    getPuntosJugador,
     cuartoActual,
     segundosRestantesCuarto,
     cronoRunning,
@@ -65,6 +62,7 @@ export default function CronometroPartido({ partidoId }: CronometroPartidoProps)
     lastTickAt,
     cambiarCuarto,
     editarTiempoManual,
+    shouldStartOvertime,
   } = usePartidoStore();
 
   const [showConfigPanel, setShowConfigPanel] = useState(false);
@@ -104,44 +102,37 @@ export default function CronometroPartido({ partidoId }: CronometroPartidoProps)
 
   useEffect(() => {
     if (!cronoRunning) return;
-    let raf = 0;
-    const loop = () => {
-      setNowMs(Date.now());
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
+    // Intervalo corto para evitar "pegues" y saltos por raf throttling.
+    const id = window.setInterval(() => setNowMs(Date.now()), 100);
+    return () => window.clearInterval(id);
   }, [cronoRunning]);
 
   const segundosRestantesActual = useMemo(() => {
     if (!cronoRunning || !lastTickAt) return segundosRestantesCuarto;
     const startedAtMs = new Date(lastTickAt).getTime();
-    const elapsed = Math.floor((nowMs - startedAtMs) / 1000);
-    return Math.max(0, segundosRestantesCuarto - Math.max(0, elapsed));
+    const elapsedSeconds = Math.max(0, (nowMs - startedAtMs) / 1000);
+    const remainingPrecise = Math.max(0, segundosRestantesCuarto - elapsedSeconds);
+    return remainingPrecise;
   }, [cronoRunning, lastTickAt, nowMs, segundosRestantesCuarto]);
 
-  const esEmpate = useMemo(() => {
-    if (!partidoActual) return false;
-    const localId = partidoActual.localEquipoId;
-    const visitId = partidoActual.visitanteEquipoId;
-    const puntosLocal = plantilla.filter((p) => p.equipoId === localId).reduce((s, p) => s + getPuntosJugador(p.jugadorId), 0);
-    const puntosVisit = plantilla.filter((p) => p.equipoId === visitId).reduce((s, p) => s + getPuntosJugador(p.jugadorId), 0);
-    return puntosLocal === puntosVisit;
-  }, [partidoActual, plantilla, getPuntosJugador]);
+  const segundosRestantesDisplay = useMemo(() => {
+    // Para UI: ceil evita mostrar un segundo "menos" antes de tiempo.
+    return Math.max(0, Math.ceil(segundosRestantesActual));
+  }, [segundosRestantesActual]);
 
   useEffect(() => {
     if (!cronoRunning) return;
     const prev = prevSegRef.current;
     const key = `p${cuartoActual}`;
 
-    // aviso 10 segundos (solo una vez por periodo)
-    if (prev > 10 && segundosRestantesActual === 10 && warned10Ref.current !== key) {
+    // aviso 10 segundos (solo una vez por periodo) - detectar cruce de umbral
+    if (prev > 10 && segundosRestantesActual <= 10 && warned10Ref.current !== key) {
       warned10Ref.current = key;
       beep(988, 140).catch(() => {});
     }
 
     // fin de periodo (solo una vez por periodo)
-    if (prev > 0 && segundosRestantesActual === 0 && endedRef.current !== key) {
+    if (prev > 0 && segundosRestantesActual <= 0 && endedRef.current !== key) {
       endedRef.current = key;
       // beep doble al terminar
       beep(740, 160).catch(() => {});
@@ -155,7 +146,7 @@ export default function CronometroPartido({ partidoId }: CronometroPartidoProps)
       // - OTn -> OT(n+1) solo si el marcador sigue empatado
       if (cuartoActual >= 1 && cuartoActual < 4) {
         cambiarCuarto(cuartoActual + 1);
-      } else if (cuartoActual >= 4 && esEmpate) {
+      } else if (shouldStartOvertime()) {
         cambiarCuarto(Math.max(5, cuartoActual + 1));
       }
 
@@ -171,6 +162,7 @@ export default function CronometroPartido({ partidoId }: CronometroPartidoProps)
     persistirCronoEnPartidoLocal,
     partidoId,
     cambiarCuarto,
+    shouldStartOvertime,
   ]);
 
   useEffect(() => {
@@ -178,6 +170,29 @@ export default function CronometroPartido({ partidoId }: CronometroPartidoProps)
       persistirCronoEnPartidoLocal(partidoId).catch(() => {});
     };
   }, [partidoId, pausarCronoSiCorriendo, persistirCronoEnPartidoLocal]);
+
+  useEffect(() => {
+    if (!cronoRunning) return;
+    const interval = window.setInterval(() => {
+      persistirCronoEnPartidoLocal(partidoId).catch(() => {});
+    }, 2000);
+    return () => window.clearInterval(interval);
+  }, [cronoRunning, partidoId, persistirCronoEnPartidoLocal]);
+
+  useEffect(() => {
+    const persist = () => {
+      persistirCronoEnPartidoLocal(partidoId).catch(() => {});
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') persist();
+    };
+    window.addEventListener('beforeunload', persist);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('beforeunload', persist);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [partidoId, persistirCronoEnPartidoLocal]);
 
   const handlePlayPause = () => {
     toggleCrono();
@@ -188,8 +203,8 @@ export default function CronometroPartido({ partidoId }: CronometroPartidoProps)
 
   const handleConfig = () => {
     pausarCronoSiCorriendo();
-    setEditMin(Math.floor(segundosRestantesActual / 60));
-    setEditSeg(Math.floor(segundosRestantesActual % 60));
+    setEditMin(Math.floor(segundosRestantesDisplay / 60));
+    setEditSeg(Math.floor(segundosRestantesDisplay % 60));
     setShowConfigPanel((v) => !v);
   };
 
@@ -226,7 +241,7 @@ export default function CronometroPartido({ partidoId }: CronometroPartidoProps)
       <div className="flex items-center justify-center gap-4">
         <div className="flex items-center gap-2">
           <div className="text-[1.75rem] leading-none font-mono font-bold text-slate-100">
-            {formatMMSS(segundosRestantesActual)}
+            {formatMMSS(segundosRestantesDisplay)}
           </div>
         </div>
         <div className="flex items-center gap-2">
