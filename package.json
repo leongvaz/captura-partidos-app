@@ -1,0 +1,16 @@
+{
+  "name": "captura-partidos-monorepo",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend",
+    "shared"
+  ],
+  "scripts": {
+    "build": "npm -w frontend run build",
+    "build:cf": "npm -w frontend run build:cf",
+    "build:render": "npm -w backend run build:render",
+    "dev:frontend": "npm -w frontend run dev",
+    "dev:backend": "npm -w backend run dev"
+  }
+}
