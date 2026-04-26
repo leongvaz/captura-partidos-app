@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "prisma generate",
+    "postinstall": "node ./node_modules/prisma/build/index.js generate",
     "dev": "tsx watch src/index.ts",
     "build": "prisma generate && tsc",
     "prestart": "prisma generate",
