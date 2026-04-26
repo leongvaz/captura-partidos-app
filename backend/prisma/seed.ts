@@ -8,6 +8,8 @@ async function main() {
   const anotador2PinHash = await bcrypt.hash('2222', 10);
   const consultaPinHash = await bcrypt.hash('5678', 10);
   const consulta2PinHash = await bcrypt.hash('8888', 10);
+  const anotadorPruebas1PinHash = await bcrypt.hash('1111', 10);
+  const anotadorPruebas1PasswordHash = await bcrypt.hash('1111', 10);
 
   const liga = await prisma.liga.upsert({
     where: { id: '00000000-0000-0000-0000-000000000001' },
@@ -42,6 +44,51 @@ async function main() {
     create: {
       ligaId: liga.id,
       usuarioId: usuarioAnotador.id,
+      rol: 'anotador_partido',
+      activo: true,
+    },
+  });
+
+  // Anotador de pruebas por email (para login-email en producción)
+  // Nota: `Usuario.email` no es unique en el schema, así que evitamos upsert por email.
+  const anotadorPruebas1Email = 'anotador1@texcoco.com';
+  let usuarioAnotadorPruebas1 = await prisma.usuario.findFirst({
+    where: { email: anotadorPruebas1Email.toLowerCase().trim() },
+  });
+  if (!usuarioAnotadorPruebas1) {
+    usuarioAnotadorPruebas1 = await prisma.usuario.create({
+      data: {
+        nombre: 'Anotador Pruebas 1',
+        email: anotadorPruebas1Email.toLowerCase().trim(),
+        pinHash: anotadorPruebas1PinHash,
+        passwordHash: anotadorPruebas1PasswordHash,
+        activo: true,
+      },
+    });
+  } else {
+    usuarioAnotadorPruebas1 = await prisma.usuario.update({
+      where: { id: usuarioAnotadorPruebas1.id },
+      data: {
+        nombre: 'Anotador Pruebas 1',
+        email: anotadorPruebas1Email.toLowerCase().trim(),
+        pinHash: anotadorPruebas1PinHash,
+        passwordHash: anotadorPruebas1PasswordHash,
+        activo: true,
+      },
+    });
+  }
+  await prisma.membresiaLiga.upsert({
+    where: {
+      ligaId_usuarioId_rol: {
+        ligaId: liga.id,
+        usuarioId: usuarioAnotadorPruebas1.id,
+        rol: 'anotador_partido',
+      },
+    },
+    update: { activo: true },
+    create: {
+      ligaId: liga.id,
+      usuarioId: usuarioAnotadorPruebas1.id,
       rol: 'anotador_partido',
       activo: true,
     },
@@ -290,6 +337,7 @@ async function main() {
   console.log('Seed OK.');
   console.log('- Liga:', liga.nombre, '(ID:', liga.id + ')');
   console.log('- Anotador Demo -> PIN 1234');
+  console.log('- Anotador Pruebas 1 -> anotador1@texcoco.com / 1111 (PIN 1111)');
   console.log('- Anotador Demo 2 -> PIN 2222');
   console.log('- Consulta Demo -> PIN 5678');
   console.log('- Consulta Demo 2 -> PIN 8888');
