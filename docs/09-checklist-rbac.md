@@ -6,7 +6,10 @@ Verificación de roles y permisos tras la refactorización RBAC (Usuario global 
 
 ## Flujo de migración (DB existente)
 
-1. **Backup** de `backend/prisma/dev.db` (o el archivo indicado en `DATABASE_URL`).
+1. **Backup** de la base de datos indicada por `DATABASE_URL` (PostgreSQL). Ejemplo:
+   ```bash
+   pg_dump "$DATABASE_URL" > backup.sql
+   ```
 2. **Ejecutar migración**:
    ```bash
    cd backend
@@ -16,10 +19,9 @@ Verificación de roles y permisos tras la refactorización RBAC (Usuario global 
    ```bash
    npx prisma generate
    ```
-4. Si el seed falla (clave única), recrear datos:
+4. Si el seed falla (clave única), corrige los datos existentes o usa un entorno limpio (por ejemplo una DB nueva) y vuelve a sembrar:
    ```bash
-   rm prisma/dev.db  # opcional: resetear DB
-   npx prisma db push
+   cd backend
    npm run db:seed
    ```
 

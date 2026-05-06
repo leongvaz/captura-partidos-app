@@ -97,10 +97,10 @@ Roles usados hoy: `admin_liga`, `capturista_roster`, `anotador_partido`, `consul
 
 ## 7.3 Modelo de datos
 
-En dev se usa **SQLite** vía Prisma.
+En dev se usa **PostgreSQL** vía Prisma (ver `backend/.env.example`).
 
 - Modelo: `backend/prisma/schema.prisma`
-- BD por defecto: `backend/prisma/dev.db` (si `DATABASE_URL="file:./dev.db"`)
+- La conexión se define en `DATABASE_URL` (PostgreSQL).
 
 ---
 

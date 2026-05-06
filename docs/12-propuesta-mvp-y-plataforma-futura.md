@@ -27,7 +27,7 @@
 *(Resumen; detalle en doc 11.)*
 
 - **Frontend:** React + Vite + TypeScript + Tailwind + Zustand + Dexie. PWA hoy; Capacitor para APK.
-- **Backend:** Fastify + Prisma + TypeScript. SQLite en desarrollo; PostgreSQL cuando escale.
+- **Backend:** Fastify + Prisma + TypeScript + PostgreSQL.
 - **Auth:** JWT + RBAC por liga (Usuario + MembresiaLiga). Un anotador por partido; sin tiempo real.
 - **Offline:** IndexedDB (Dexie) como fuente operativa; sync por cola e idempotencia (clientEventId, clientClosureId).
 - **Android:** Capacitor (Camera, Filesystem, Share) sobre el mismo build web.
@@ -159,15 +159,14 @@ Objetivo: poder añadir después descubrimiento de ligas, ubicaciones, canchas c
   - **Recomendación inicial:** Railway o Render (deploy desde repo; Node; variable DATABASE_URL). Railway suele ser muy sencillo; Render tiene tier gratis con límites.  
   - Alternativa: VPS (DigitalOcean, Linode, etc.) con Node + PM2; más control, más trabajo.  
 - **Base de datos:**  
-  - **Para empezar:** SQLite en el mismo servicio que el backend (archivo en disco). Railway/Render permiten volumen persistente para el archivo .db.  
-  - **Cuando crezca:** PostgreSQL gestionado (Railway, Render, Supabase, Neon). Cambiar DATABASE_URL y ejecutar migraciones Prisma.  
+  - **Recomendación actual:** PostgreSQL gestionado (Railway, Render, Supabase, Neon). Definir `DATABASE_URL` y ejecutar `prisma migrate deploy`.  
 - **Fotos:**  
   - **Para empezar:** Disco local en el servidor (carpeta `uploads/`); la API guarda el archivo y devuelve URL relativa (ej. `/uploads/marcador-xxx.jpg`). El frontend usa la misma base URL que la API.  
   - **Cuando crezca:** S3-compatible (AWS S3, Cloudflare R2, MinIO). Subir el blob a un bucket y guardar la URL en Partido.fotoMarcadorUrl. No cambiar la lógica de “subir en cierre”; solo el destino del archivo.
 
 ### F.2 Costos / criterio aproximado
 
-- **Mínimo viable:** Frontend en Vercel (free), Backend + SQLite en Railway (plan bajo ~5–7 USD/mes) o Render (free tier con sleep). Fotos en disco. Total ~0–10 USD/mes.  
+- **Mínimo viable:** Frontend en Vercel (free), Backend en Railway/Render + PostgreSQL (free/low tier según proveedor). Fotos en disco.  
 - **Un poco más estable:** Backend en Railway/Render pagado, PostgreSQL gestionado (Railway/Render/Supabase ~0–25 USD/mes según uso). Fotos siguen en disco o se pasa a R2/S3 (~pocos USD/mes). Total ~15–40 USD/mes.  
 - **Si crece:** VPS o instancia dedicada, PostgreSQL en servicio gestionado, S3/R2 para fotos, CDN opcional. Escalar según usuarios y ligas.
 
@@ -175,17 +174,17 @@ Objetivo: poder añadir después descubrimiento de ligas, ubicaciones, canchas c
 
 1. Repo en GitHub.  
 2. Frontend: `npm run build`; conectar Vercel al repo, build command `npm run build`, output `dist`. Variable de entorno `VITE_API_URL` = URL del backend.  
-3. Backend: Conectar Railway (o Render) al repo; root del backend; build `npm install && npx prisma generate`; start `node dist/index.js` (o `tsx src/index.ts` si usas tsx). Variables: `DATABASE_URL` (para SQLite: `file:./prisma/dev.db` o path en volumen), `JWT_SECRET`, `UPLOAD_DIR` si aplica.  
-4. Volumen persistente para SQLite y carpeta uploads en el mismo servicio del backend.  
+3. Backend: Conectar Railway (o Render) al repo; root del backend; build `npm install && npx prisma generate`; start `node dist/index.js` (o `tsx src/index.ts` si usas tsx). Variables: `DATABASE_URL` (PostgreSQL), `JWT_SECRET`, `UPLOAD_DIR` si aplica.
+4. Carpeta uploads en el mismo servicio del backend (o storage S3/R2 más adelante).
 5. CORS en Fastify permitiendo el origen del frontend (Vercel URL).  
 
 ### F.4 Migración futura a PostgreSQL
 
-- Cambiar `provider` en schema.prisma a `postgresql` y `url` a conexión Postgres.  
+- (Ya aplicado) `schema.prisma` usa `provider = "postgresql"` y la conexión viene de `DATABASE_URL`.  
 - Crear migraciones con `prisma migrate dev` (en un entorno con Postgres).  
-- Exportar datos de SQLite (script que lea tablas y genere inserts o use herramienta de migración).  
+- Para migraciones entre motores/instancias, exportar/importar datos con un script o dump según el caso.  
 - Desplegar con `DATABASE_URL` de Postgres; ejecutar `prisma migrate deploy`.  
-- No tocar la lógica de negocio; solo el datasource y posibles ajustes de tipos (ej. Boolean en SQLite ya es compatible).
+- No tocar la lógica de negocio; solo el datasource y posibles ajustes de tipos.
 
 ---
 

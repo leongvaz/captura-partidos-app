@@ -25,7 +25,10 @@ La API queda en `http://localhost:3001/api/v1`.
 
 ### Migración RBAC (si ya tenías DB con Usuario.ligaId)
 
-1. **Backup** de `prisma/dev.db` (o el archivo en `DATABASE_URL`).
+1. **Backup** de la base de datos indicada por `DATABASE_URL` (PostgreSQL). Ejemplo:
+   ```bash
+   pg_dump "$DATABASE_URL" > backup.sql
+   ```
 2. Ejecutar migración:
    ```bash
    npm run db:migrate-rbac
@@ -77,6 +80,6 @@ Si te logueaste contra un backend distinto (p. ej. Render) y luego cambiaste a b
 
 ## Estructura
 
-- **backend:** Fastify, Prisma (SQLite), auth JWT, partidos, plantilla, eventos, cerrar con foto, acta.
+- **backend:** Fastify, Prisma (PostgreSQL), auth JWT, partidos, plantilla, eventos, cerrar con foto, acta.
 - **frontend:** Vite + React, Tailwind, Zustand, Dexie (IndexedDB), PWA. Pantallas: Login, Partidos, Config Mesa, Captura, Resumen, Acta.
 - **Sincronización:** Eventos y partidos se guardan en local; al haber red se envían a la API (botón "Sincronizar" en header).

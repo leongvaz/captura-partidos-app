@@ -32,7 +32,7 @@ Documento de referencia: **qué está listo** y **qué falta** según el PRD y l
 | Elemento | Estado |
 |----------|--------|
 | Node.js + Fastify + TypeScript | ✅ |
-| Prisma + SQLite | ✅ |
+| Prisma + PostgreSQL | ✅ |
 | JWT (ligaId + PIN → token) | ✅ |
 | Auth middleware (Bearer, payload en request) | ✅ |
 | RBAC: Usuario global + MembresiaLiga | ✅ |

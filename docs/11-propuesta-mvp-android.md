@@ -16,7 +16,7 @@
 | **Auth** | JWT + RBAC por liga (Usuario + MembresiaLiga) | Ya implementado; roles claros por pantalla y endpoint. |
 | **Event log** | Eventos por partido con `id` cliente, `orden`, `synced` | Idempotencia por `id`; sin WebSockets en MVP. |
 | **Android** | Capacitor (Camera, Filesystem, Share) | Sobre el mismo build web; plugins solo donde haga falta. |
-| **BD producción** | PostgreSQL (desarrollo: SQLite) | Prisma con `provider` y URL; migración con cuidado a tipos. |
+| **BD servidor** | PostgreSQL | Prisma con `provider` y `DATABASE_URL`. |
 
 ### Lo que NO se hace
 
@@ -29,7 +29,7 @@
 
 ### Riesgos asumidos y mitigación
 
-1. **SQLite en backend:** Limitaciones de tipos y concurrencia. Mitigación: esquema y queries pensados para PostgreSQL; migración con script y pruebas.
+1. **Persistencia servidor:** PostgreSQL. (Histórico: si se considerara SQLite, hay limitaciones de tipos y concurrencia; evitarlo en producción.)
 2. **Cierre offline con foto:** Complejidad de cola (foto + cierre). Mitigación: `clientClosureId` + foto en IndexedDB o Capacitor Filesystem; endpoint cerrar idempotente.
 3. **PDF en navegador:** Limitaciones de algunas plataformas. Mitigación: Web Share API primero; fallback descarga; en Android Capacitor Share.
 
@@ -52,7 +52,7 @@
 ### Ajustar (cambios concretos)
 
 - **Partido:** Aceptar `estado` `default_local` / `default_visitante` en PATCH; validar en cerrar que partidos default no exijan foto ni eventos.
-- **Evento (Prisma y cliente):** Añadir `jugadorNombreSnapshot`, `dorsalSnapshot` (opcionales), `tiempoManual` (nullable); en SQLite como String/Int; preparar para PostgreSQL.
+- **Evento (Prisma y cliente):** Añadir `jugadorNombreSnapshot`, `dorsalSnapshot` (opcionales), `tiempoManual` (nullable); tipar pensando en PostgreSQL.
 - **Evento idempotencia:** Ya se usa `id` cliente; documentar como `clientEventId`; opcional `@@unique` en Prisma si el provider lo permite.
 - **Cierre:** Endpoint aceptar `clientClosureId` y body con `fotoMarcadorUrl` (tras subir foto por separado) o multipart; idempotencia por `clientClosureId` si se reenvía.
 - **SyncStore:** Incluir cola de “cierres pendientes” (partidoId + foto local/key + clientClosureId); al tener red: subir foto → POST cerrar → marcar partido synced.
@@ -430,12 +430,12 @@ for (const c of cierres) {
 
 ---
 
-## G. Plan de migración SQLite → PostgreSQL
+## G. Nota histórica: migración SQLite → PostgreSQL
 
 1. **Esquema:** Mantener nombres de modelo Prisma en camelCase; en PostgreSQL usar `@@map("snake_case")` si se desea snake_case en tablas. Tipos: en SQLite no hay enum nativo (String); en PostgreSQL se pueden crear enums con `db.ExecuteRaw` o mantener String.
-2. **Provider:** En `schema.prisma`, `datasource db { provider = "postgresql" | "sqlite" url = env("DATABASE_URL") }`. Desarrollo: `.env` con SQLite; producción: DATABASE_URL postgres.
-3. **Migraciones:** `npx prisma migrate dev` con PostgreSQL crea migraciones; para SQLite las migraciones son distintas. Estrategia: mantener migraciones separadas por provider o usar `db push` en desarrollo SQLite y `migrate deploy` en producción PostgreSQL.
-4. **Datos:** Exportar SQLite (seed o dump) e importar a PostgreSQL con script que mapee tipos (ej. fechas, booleanos). Probar seed en ambos.
+2. **Provider:** Hoy el proyecto ya está en `provider = "postgresql"` y `DATABASE_URL` apunta a PostgreSQL.
+3. **Migraciones:** Usar `prisma migrate dev` para generar migraciones y `prisma migrate deploy` en despliegues.
+4. **Datos:** Si migras entre instancias (Postgres→Postgres), usa dumps (`pg_dump`/restore) o scripts controlados.
 5. **No reventar modelo:** Evitar tipos o constraints que solo existan en PostgreSQL en el mismo schema que se usa con SQLite; usar campos opcionales o comprobar provider en código si fuera necesario.
 
 ---

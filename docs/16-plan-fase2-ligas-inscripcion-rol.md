@@ -8,7 +8,7 @@ Documento de planificación (sin código) para la evolución del sistema: alta d
 
 ## 1. Hosting y despliegue
 
-- **Hostinger:** Permite montar **React** y **Node.js** (planes Business/Cloud); se puede desplegar la misma app (front + API). Hostinger suele ofrecer **MySQL**; es viable **migrar de SQLite a MySQL** cambiando el provider en Prisma y la cadena de conexión (sin cambiar lógica de negocio).
+- **Hostinger:** Permite montar **React** y **Node.js** (planes Business/Cloud); se puede desplegar la misma app (front + API). Hostinger suele ofrecer **MySQL**; si se decidiera cambiar de motor (hoy **PostgreSQL**) habría que ajustar `provider` en Prisma, migraciones y estrategia de exportación/importación de datos.
 - **Alternativas ya citadas (doc 05):** Railway, Render, Fly.io, Vercel (front) + API en otro servicio.
 - **Página web vs app:** El frontend actual será **app** (PWA/Capacitor), pero **no todos tendrán la app al inicio**. Se debe ofrecer una **página web** con la **misma funcionalidad** (anotar, ver partidos asignados, inscripción, etc.) para que anotadores y representantes puedan usarla desde el navegador. Mismo código base (React), montado como web para unos y como app para otros.
 

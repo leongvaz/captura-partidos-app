@@ -7,7 +7,7 @@ Aplicación **offline-first** para anotación y gestión de estadísticas de bas
 ## Stack actual (código)
 
 - **Frontend**: Vite + React + TypeScript + Tailwind + Zustand + Dexie (IndexedDB) + PWA (`vite-plugin-pwa`)
-- **Backend**: Node.js + Fastify + TypeScript + Prisma + SQLite
+- **Backend**: Node.js + Fastify + TypeScript + Prisma + PostgreSQL
 - **Auth**: JWT (`Authorization: Bearer <token>`) + RBAC por liga (`MembresiaLiga`)
 - **Uploads (dev)**: estáticos desde `backend/uploads` en `/uploads`
 
@@ -25,7 +25,7 @@ Guía completa en [`DESARROLLO.md`](DESARROLLO.md).
 cd backend
 cp .env.example .env
 npm install
-npx prisma db push
+npx prisma migrate deploy
 npm run db:seed
 npm run dev
 ```

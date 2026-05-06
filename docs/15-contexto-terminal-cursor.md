@@ -34,20 +34,26 @@ No se requiere instalar globalmente Prisma, Vite ni otros CLIs; todo se ejecuta 
 cd "backend"
 ```
 
-2. Instalar dependencias del backend (solo la primera vez en esa máquina):
+2. Crear el archivo de variables de entorno:
+
+```bash
+cp .env.example .env
+```
+
+3. Instalar dependencias del backend (solo la primera vez en esa máquina):
 
 ```bash
 npm install
 ```
 
-3. Aplicar el schema de Prisma a la base de datos SQLite y generar clientes:
+4. Aplicar migraciones y generar el cliente de Prisma (PostgreSQL):
 
 ```bash
-npx prisma db push
 npx prisma generate
+npx prisma migrate deploy
 ```
 
-4. Sembrar datos demo (liga y usuarios):
+5. Sembrar datos demo (liga y usuarios):
 
 ```bash
 npx prisma db seed
@@ -59,13 +65,13 @@ Esto crea al menos:
 - Usuario **Anotador Demo** con PIN `1234` y rol `anotador_partido`
 - Usuario **Consulta Demo** con PIN `5678` y rol `consulta`
 
-5. Levantar el backend en modo desarrollo:
+6. Levantar el backend en modo desarrollo:
 
 ```bash
 npm run dev
 ```
 
-El backend se expone en `http://localhost:5173/api/v1` (proxyado por Vite desde el frontend) según la configuración actual.
+El backend se expone en `http://localhost:3001/api/v1`.
 
 > Si quieres ver logs del backend con claridad, mantén esta terminal dedicada sólo al servidor.
 

@@ -1,6 +1,21 @@
 # 2. Modelo de datos completo (local + servidor)
 
-Modelo pensado para **offline-first** (réplica local en IndexedDB/SQLite) y **sincronización** con servidor (API REST). Las entidades se describen en formato conceptual; la implementación puede usar JSON Schema, TypeScript interfaces o DDL según el stack elegido.
+Modelo pensado para **offline-first** (réplica local en IndexedDB) y **sincronización** con servidor (API REST).
+
+**Fuente de verdad (implementación actual):**
+
+- **Modelo**: `backend/prisma/schema.prisma`
+- **Base de datos servidor**: **PostgreSQL** (`provider = "postgresql"`, `DATABASE_URL`)
+- **RBAC**: `Usuario` + `MembresiaLiga` (roles por liga)
+
+> Nota: las tablas de este documento son **conceptuales**. Si ves discrepancias, prioriza `schema.prisma`.
+
+### Diferencias clave vs schema actual (abril/mayo 2026)
+
+- **Liga vs temporada**: en el código existe `Temporada` (una `Liga` tiene varias temporadas).
+- **Usuario ya no “pertenece” a una sola liga**: la relación es por `MembresiaLiga` (múltiples roles por liga).
+- **Persona**: existe entidad `Persona` (CURP único) para historial deportivo, y `Jugador` puede apuntar a `personaId`.
+- **Partido**: incluye `temporadaId`, marcadores finales, versionado local/servidor y soporte de idempotencia de cierre (`CierrePartido`).
 
 ---
 
