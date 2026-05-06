@@ -1,11 +1,11 @@
-import { applyEvent } from './apply-event';
-import { canFinishMatch, getFinishBlockReasons } from './closing';
-import type { MatchEvent } from './event-types';
-import { MatchRuleError } from './errors';
-import { validateEvent } from './event-validation';
-import type { LeagueRulesConfig } from './rules-config';
-import { shouldStartOvertime } from './overtime';
-import type { MatchState } from './types';
+import { applyEvent } from './apply-event.js';
+import { canFinishMatch, getFinishBlockReasons } from './closing.js';
+import type { MatchEvent } from './event-types.js';
+import { MatchRuleError, type RuleViolation } from './errors.js';
+import { validateEvent } from './event-validation.js';
+import type { LeagueRulesConfig } from './rules-config.js';
+import { shouldStartOvertime } from './overtime.js';
+import type { MatchState } from './types.js';
 
 export interface DeriveMatchStateOptions {
   validationMode?: 'strict' | 'replay';
@@ -25,7 +25,7 @@ export function deriveMatchState(
     });
     if (violations.length > 0) {
       throw new MatchRuleError(
-        `Evento inválido ${event.id}: ${violations.map((violation) => violation.code).join(', ')}`,
+        `Evento inválido ${event.id}: ${violations.map((violation: RuleViolation) => violation.code).join(', ')}`,
         violations
       );
     }

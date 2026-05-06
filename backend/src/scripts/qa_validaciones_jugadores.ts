@@ -115,6 +115,8 @@ async function main() {
   if (!equipoAlbianas) throw new Error('No existe equipo Albianas');
 
   const ligaId = equipoAlbianas.ligaId;
+  const temporadaId = equipoAlbianas.temporadaId;
+  if (!temporadaId) throw new Error('Equipo Albianas sin temporada asignada');
 
   // Usuario QA capitán
   const email = 'qa.capitan@example.com';
@@ -151,7 +153,14 @@ async function main() {
   });
   if (!equipoQA) {
     equipoQA = await prisma.equipo.create({
-      data: { ligaId, duenoId: usuario.id, nombre: 'QA Femenil', categoria: 'femenil:primera', activo: true },
+      data: {
+        ligaId,
+        temporadaId,
+        duenoId: usuario.id,
+        nombre: 'QA Femenil',
+        categoria: 'femenil:primera',
+        activo: true,
+      },
     });
   }
 

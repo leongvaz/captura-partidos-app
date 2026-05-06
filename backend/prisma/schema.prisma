@@ -3,27 +3,44 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-// SQLite no soporta enums; usamos String con los mismos valores
-// Deporte de la competencia (extensible: futuro fútbol, americano, etc.)
+// Identidad estable de la competencia (varias temporadas bajo la misma liga)
 model Liga {
   id           String          @id @default(uuid())
   nombre       String
-  temporada    String
   deporte      String          @default("baloncesto")
   categorias   String          @default("[\"primera\",\"segunda\",\"veteranos\",\"femenil\",\"varonil\"]")
   reglasConfig String          @default("{}")
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
+  temporadas   Temporada[]
   membresias   MembresiaLiga[]
   equipos      Equipo[]
   sedes        Sede[]
   canchas      Cancha[]
   partidos     Partido[]
   invitaciones Invitacion[]
+}
+
+// Ciclo competitivo (año, apertura/clausura, etc.)
+model Temporada {
+  id        String   @id @default(uuid())
+  ligaId    String
+  etiqueta  String
+  fechaInicio DateTime?
+  fechaFin  DateTime?
+  estado    String   @default("activa") // activa | archivada
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  liga      Liga     @relation(fields: [ligaId], references: [id], onDelete: Cascade)
+  equipos   Equipo[]
+  partidos  Partido[]
+
+  @@index([ligaId])
+  @@index([ligaId, estado])
 }
 
 model Sede {
@@ -41,19 +58,19 @@ model Sede {
 
 // Identidad deportiva única por CURP (historial cruzando ligas/temporadas/deportes)
 model Persona {
-  id                String   @id @default(uuid())
-  curp              String   @unique
-  nombreDisplay     String?
-  apellidoDisplay   String?
-  sexo              String?
-  fechaNacimiento   String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  jugadores         Jugador[]
-  resumenesPartido  ResumenJugadorPartido[]
+  id                     String   @id @default(uuid())
+  curp                   String   @unique
+  nombreDisplay          String?
+  apellidoDisplay        String?
+  sexo                   String?
+  fechaNacimiento        String?
+  solicitudEliminacionAt DateTime?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  jugadores              Jugador[]
+  resumenesPartido       ResumenJugadorPartido[]
 }
 
-// Usuario global: puede pertenecer a varias ligas mediante MembresiaLiga
 model Usuario {
   id           String          @id @default(uuid())
   nombre       String
@@ -72,12 +89,11 @@ model Usuario {
   @@unique([curp])
 }
 
-// Rol por liga: un usuario puede tener distintos roles en distintas ligas
 model MembresiaLiga {
   id        String   @id @default(uuid())
   ligaId    String
   usuarioId String
-  rol       String // superadmin | admin_liga | capturista_roster | anotador_partido | consulta
+  rol       String
   activo    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -92,14 +108,16 @@ model MembresiaLiga {
 model Equipo {
   id                String             @id @default(uuid())
   ligaId            String
-  duenoId          String?
+  temporadaId       String
+  duenoId           String?
   nombre            String
   categoria         String
   activo            Boolean            @default(true)
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   liga              Liga               @relation(fields: [ligaId], references: [id], onDelete: Cascade)
-  dueno            Usuario?           @relation("EquiposPorDueno", fields: [duenoId], references: [id], onDelete: SetNull)
+  temporada         Temporada          @relation(fields: [temporadaId], references: [id], onDelete: Restrict)
+  dueno             Usuario?           @relation("EquiposPorDueno", fields: [duenoId], references: [id], onDelete: SetNull)
   jugadores         Jugador[]
   partidosLocal     Partido[]          @relation("Local")
   partidosVisitante Partido[]          @relation("Visitante")
@@ -108,29 +126,31 @@ model Equipo {
   resumenesJugador  ResumenJugadorPartido[]
 
   @@index([duenoId])
+  @@index([ligaId])
+  @@index([temporadaId])
 }
 
 model Jugador {
-  id           String   @id @default(uuid())
-  equipoId     String
-  personaId    String?
-  nombre       String
-  apellido     String
-  numero       Int
-  curp         String?
-  sexo         String?         // 'H' o 'M' derivado de la CURP
-  fechaNacimiento String?      // YYYY-MM-DD derivado de la CURP
-  fotoUrl      String?
-  invitado     Boolean  @default(false)
-  activo       Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  equipo       Equipo   @relation(fields: [equipoId], references: [id], onDelete: Cascade)
-  persona      Persona? @relation(fields: [personaId], references: [id], onDelete: SetNull)
-  plantillas   PlantillaPartido[]
-  eventos      Evento[] @relation("JugadorEvento")
-  eventosEntra Evento[] @relation("JugadorEntra")
-  incidencias  Incidencia[]
+  id              String   @id @default(uuid())
+  equipoId        String
+  personaId       String?
+  nombre          String
+  apellido        String
+  numero          Int
+  curp            String?
+  sexo            String?
+  fechaNacimiento String?
+  fotoUrl         String?
+  invitado        Boolean  @default(false)
+  activo          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  equipo          Equipo   @relation(fields: [equipoId], references: [id], onDelete: Restrict)
+  persona         Persona? @relation(fields: [personaId], references: [id], onDelete: SetNull)
+  plantillas      PlantillaPartido[]
+  eventos         Evento[] @relation("JugadorEvento")
+  eventosEntra    Evento[] @relation("JugadorEntra")
+  incidencias     Incidencia[]
   resumenesPartido ResumenJugadorPartido[]
 
   @@unique([equipoId, numero])
@@ -156,6 +176,7 @@ model Cancha {
 model Partido {
   id                     String             @id
   ligaId                 String
+  temporadaId            String
   localEquipoId          String
   visitanteEquipoId      String
   canchaId               String
@@ -176,6 +197,7 @@ model Partido {
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
   liga                   Liga               @relation(fields: [ligaId], references: [id], onDelete: Cascade)
+  temporada              Temporada          @relation(fields: [temporadaId], references: [id], onDelete: Restrict)
   localEquipo            Equipo             @relation("Local", fields: [localEquipoId], references: [id])
   visitanteEquipo        Equipo             @relation("Visitante", fields: [visitanteEquipoId], references: [id])
   cancha                 Cancha             @relation(fields: [canchaId], references: [id])
@@ -184,7 +206,10 @@ model Partido {
   eventos                Evento[]
   incidencias            Incidencia[]
   cierrePartido          CierrePartido?
-  resumenesJugador     ResumenJugadorPartido[]
+  resumenesJugador       ResumenJugadorPartido[]
+
+  @@index([ligaId])
+  @@index([temporadaId])
 }
 
 model CierrePartido {
@@ -208,7 +233,7 @@ model PlantillaPartido {
   updatedAt       DateTime @updatedAt
   partido         Partido  @relation(fields: [partidoId], references: [id], onDelete: Cascade)
   equipo          Equipo   @relation(fields: [equipoId], references: [id])
-  jugador         Jugador  @relation(fields: [jugadorId], references: [id])
+  jugador         Jugador  @relation(fields: [jugadorId], references: [id], onDelete: Restrict)
 
   @@unique([partidoId, jugadorId])
 }
@@ -222,13 +247,13 @@ model Evento {
   minutoPartido           Float
   cuarto                  Int
   orden                   Int
-  segundosRestantesCuarto Int? // segundos que quedaban en el crono del cuarto
-  tiempoPartidoSegundos   Int? // tiempo total jugado acumulado (segundos)
+  segundosRestantesCuarto Int?
+  tiempoPartidoSegundos   Int?
   createdAt               DateTime  @default(now())
   serverReceivedAt        DateTime?
   partido                 Partido   @relation(fields: [partidoId], references: [id], onDelete: Cascade)
-  jugador                 Jugador   @relation("JugadorEvento", fields: [jugadorId], references: [id])
-  jugadorEntra            Jugador?  @relation("JugadorEntra", fields: [jugadorEntraId], references: [id])
+  jugador                 Jugador   @relation("JugadorEvento", fields: [jugadorId], references: [id], onDelete: Restrict)
+  jugadorEntra            Jugador?  @relation("JugadorEntra", fields: [jugadorEntraId], references: [id], onDelete: SetNull)
 }
 
 model Incidencia {
@@ -245,7 +270,6 @@ model Incidencia {
   jugador   Jugador? @relation(fields: [jugadorId], references: [id])
 }
 
-// Totales por jugador en un partido cerrado (consulta ágil de historial; los Evento siguen siendo la fuente detallada)
 model ResumenJugadorPartido {
   id                  String   @id @default(uuid())
   partidoId           String
@@ -257,13 +281,14 @@ model ResumenJugadorPartido {
   canastasDe3         Int      @default(0)
   tirosLibresAnotados Int      @default(0)
   faltas              Int      @default(0)
+  asistencias         Int      @default(0)
   minutosJugados      Float?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
   partido             Partido  @relation(fields: [partidoId], references: [id], onDelete: Cascade)
-  jugador             Jugador  @relation(fields: [jugadorId], references: [id], onDelete: Cascade)
+  jugador             Jugador  @relation(fields: [jugadorId], references: [id], onDelete: Restrict)
   persona             Persona? @relation(fields: [personaId], references: [id], onDelete: SetNull)
-  equipo              Equipo   @relation(fields: [equipoId], references: [id], onDelete: Cascade)
+  equipo              Equipo   @relation(fields: [equipoId], references: [id], onDelete: Restrict)
 
   @@unique([partidoId, jugadorId])
   @@index([personaId])
@@ -271,11 +296,10 @@ model ResumenJugadorPartido {
   @@index([partidoId])
 }
 
-// Invitaciones para registro por link (organizador, anotadores, capitanes, etc.)
 model Invitacion {
   id        String   @id @default(uuid())
   token     String   @unique
-  tipo      String // por ahora: "organizador", en el futuro: "anotador", "capitan", etc.
+  tipo      String
   ligaId    String
   usado     Boolean  @default(false)
   expiresAt DateTime

@@ -46,6 +46,7 @@ export default function Login() {
             const e = eq as {
               id: string;
               ligaId: string;
+              temporadaId?: string;
               nombre: string;
               categoria: string;
               activo: boolean;

@@ -257,7 +257,7 @@ export default function PanelSuperAdmin() {
                 <ul className="space-y-1 text-slate-300 text-xs">
                   {historial.inscripciones.map((i) => (
                     <li key={i.jugadorId}>
-                      {i.ligaNombre} ({i.temporada}, {i.deporte}) — {i.equipoNombre} · #{i.numero}
+                      {i.ligaNombre} ({i.temporadaEtiqueta}, {i.deporte}) — {i.equipoNombre} · #{i.numero}
                       {!i.activo ? ' · baja' : ''}
                     </li>
                   ))}
@@ -270,7 +270,8 @@ export default function PanelSuperAdmin() {
                 <ul className="max-h-48 overflow-y-auto space-y-1 text-xs text-slate-300">
                   {historial.partidos.map((p) => (
                     <li key={`${p.partidoId}-${p.equipo.id}`} className="border-b border-slate-700/50 pb-1">
-                      {p.fecha} · {p.liga.nombre} — {p.equipo.nombre} vs {p.rivalNombre}: {p.resumen.puntos} pts
+                      {p.fecha} · {p.liga.nombre} / {p.temporada?.etiqueta ?? '—'} — {p.equipo.nombre} vs{' '}
+                      {p.rivalNombre}: {p.resumen.puntos} pts
                       {p.folio ? ` · ${p.folio}` : ''}
                     </li>
                   ))}

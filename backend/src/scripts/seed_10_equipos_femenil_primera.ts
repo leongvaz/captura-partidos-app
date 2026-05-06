@@ -109,6 +109,8 @@ async function main() {
   const albianas = await prisma.equipo.findFirst({ where: { nombre: { equals: 'Albianas' } } });
   if (!albianas) throw new Error('No encontré equipo Albianas');
   const ligaId = albianas.ligaId;
+  const temporadaId = albianas.temporadaId;
+  if (!temporadaId) throw new Error('Equipo Albianas sin temporada asignada');
 
   const nombresEquipos = [
     'Halconas', 'Panteras', 'Guerreras', 'Tigresas', 'Águilas', 'Lobos', 'Dragones',
@@ -166,6 +168,7 @@ async function main() {
     const equipo = await prisma.equipo.create({
       data: {
         ligaId,
+        temporadaId,
         duenoId: usuario.id,
         nombre: equipoNombre,
         categoria: 'femenil:primera',

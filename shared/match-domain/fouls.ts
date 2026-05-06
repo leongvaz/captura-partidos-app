@@ -1,5 +1,5 @@
-import type { LeagueRulesConfig } from './rules-config';
-import type { PeriodType, PlayerGameState, TeamFoulsByPeriod } from './types';
+import type { LeagueRulesConfig } from './rules-config.js';
+import type { PeriodType, PlayerGameState, TeamFoulsByPeriod } from './types.js';
 
 export function isFoulEvent(type: string): boolean {
   return (

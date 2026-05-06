@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { requireRole, ensureMembership, type AuthRequest } from '../lib/auth.js';
+import { ligaJsonWithTemporadas, resolveTemporadaIdForLiga } from '../lib/temporada.js';
 import { etiquetaCancha } from '../lib/canchaEtiqueta.js';
 import { sedeNombrePorIdMap } from '../lib/canchaSedeBatch.js';
 import { deriveBackendMatchState } from '../lib/matchDomain.js';
@@ -153,13 +154,7 @@ export async function ligaRoutes(app: FastifyInstance) {
         .send({ code: 'NOT_FOUND', message: 'Liga no encontrada' });
     }
 
-    return reply.send({
-      id: liga.id,
-      nombre: liga.nombre,
-      temporada: liga.temporada,
-      deporte: liga.deporte,
-      categorias: JSON.parse(liga.categorias || '[]'),
-    });
+    return reply.send(await ligaJsonWithTemporadas(liga));
   });
 
   // Ligas para superadmin (gestión global)
@@ -175,15 +170,7 @@ export async function ligaRoutes(app: FastifyInstance) {
       orderBy: { createdAt: 'desc' },
     });
 
-    const list = ligas.map((l) => ({
-      id: l.id,
-      nombre: l.nombre,
-      temporada: l.temporada,
-      deporte: l.deporte,
-      categorias: JSON.parse(l.categorias || '[]'),
-      createdAt: l.createdAt.toISOString(),
-      updatedAt: l.updatedAt.toISOString(),
-    }));
+    const list = await Promise.all(ligas.map((l) => ligaJsonWithTemporadas(l)));
 
     return reply.send(list);
   });
@@ -210,28 +197,32 @@ export async function ligaRoutes(app: FastifyInstance) {
       ? categorias
       : ['primera', 'segunda', 'veteranos', 'femenil', 'varonil'];
 
-    const liga = await prisma.liga.create({
-      data: {
-        nombre,
-        temporada,
-        deporte: (deporte && String(deporte).trim()) || 'baloncesto',
-        categorias: JSON.stringify(cats),
-      },
+    const liga = await prisma.$transaction(async (tx) => {
+      const L = await tx.liga.create({
+        data: {
+          nombre,
+          deporte: (deporte && String(deporte).trim()) || 'baloncesto',
+          categorias: JSON.stringify(cats),
+        },
+      });
+      await tx.temporada.create({
+        data: {
+          ligaId: L.id,
+          etiqueta: temporada,
+          estado: 'activa',
+        },
+      });
+      return L;
     });
 
     return reply.send({
-      id: liga.id,
-      nombre: liga.nombre,
-      temporada: liga.temporada,
-      deporte: liga.deporte,
+      ...(await ligaJsonWithTemporadas(liga)),
       categorias: cats,
-      createdAt: liga.createdAt.toISOString(),
-      updatedAt: liga.updatedAt.toISOString(),
     });
   });
 
   /** Detalle de liga para superadmin: reglas + equipos (solo lectura) */
-  app.get<{ Params: { ligaId: string } }>(
+  app.get<{ Params: { ligaId: string }; Querystring: { temporadaId?: string } }>(
     '/admin/ligas/:ligaId',
     { preHandler: [app.authenticate] },
     async (request, reply) => {
@@ -240,6 +231,13 @@ export async function ligaRoutes(app: FastifyInstance) {
         return reply.status(403).send({ code: 'FORBIDDEN', message: 'Solo superadmin' });
       }
       const { ligaId } = request.params;
+      const temporadaIdResolved = await resolveTemporadaIdForLiga(
+        ligaId,
+        request.query?.temporadaId,
+        reply
+      );
+      if (!temporadaIdResolved) return;
+
       const liga = await prisma.liga.findUnique({ where: { id: ligaId } });
       if (!liga) {
         return reply.status(404).send({ code: 'NOT_FOUND', message: 'Liga no encontrada' });
@@ -287,7 +285,7 @@ export async function ligaRoutes(app: FastifyInstance) {
       const reglas = normalizarFechasReglasLiga(reglasRaw);
 
       const equipos = await prisma.equipo.findMany({
-        where: { ligaId, activo: true },
+        where: { ligaId, temporadaId: temporadaIdResolved, activo: true },
         orderBy: [{ categoria: 'asc' }, { nombre: 'asc' }],
         include: {
           _count: {
@@ -298,13 +296,17 @@ export async function ligaRoutes(app: FastifyInstance) {
         },
       });
 
+      const ligaPayload = await ligaJsonWithTemporadas(liga);
+
       return reply.send({
         liga: {
-          id: liga.id,
-          nombre: liga.nombre,
-          temporada: liga.temporada,
-          deporte: liga.deporte,
-          categorias: JSON.parse(liga.categorias || '[]') as string[],
+          id: ligaPayload.id,
+          nombre: ligaPayload.nombre,
+          deporte: ligaPayload.deporte,
+          categorias: ligaPayload.categorias,
+          temporadas: ligaPayload.temporadas,
+          temporadaActiva: ligaPayload.temporadaActiva,
+          temporada: ligaPayload.temporada,
         },
         reglas,
         equipos: equipos.map((e) => ({
@@ -318,19 +320,29 @@ export async function ligaRoutes(app: FastifyInstance) {
   );
 
   app.get<{
-    Querystring: { ligaId: string; fechaDesde?: string; fechaHasta?: string; conIncidencia?: string };
+    Querystring: {
+      ligaId: string;
+      fechaDesde?: string;
+      fechaHasta?: string;
+      conIncidencia?: string;
+      temporadaId?: string;
+    };
   }>(
     '/liga/panel',
     { preHandler: [app.authenticate, ensureMembership, requireRole(...ROLES_LECTURA_ROSTER)] },
     async (request, reply) => {
-      const { ligaId, fechaDesde, fechaHasta, conIncidencia } = request.query;
+      const { ligaId, fechaDesde, fechaHasta, conIncidencia, temporadaId } = request.query;
       const req = request as AuthRequest;
       if (!ligaId || req.ligaId !== ligaId) {
         return reply.status(400).send({ code: 'VALIDATION', message: 'ligaId es requerido' });
       }
 
+      const temporadaIdResolved = await resolveTemporadaIdForLiga(ligaId, temporadaId, reply);
+      if (!temporadaIdResolved) return;
+
       const where: Prisma.PartidoWhereInput = {
         ligaId,
+        temporadaId: temporadaIdResolved,
         estado: { in: [...ESTADOS_CERRADOS] as string[] },
       };
       if (fechaDesde || fechaHasta) {
@@ -386,23 +398,30 @@ export async function ligaRoutes(app: FastifyInstance) {
     }
   );
 
-  app.get<{ Querystring: { ligaId: string } }>(
+  app.get<{ Querystring: { ligaId: string; temporadaId?: string } }>(
     '/liga/equipos-estadisticas',
     { preHandler: [app.authenticate, ensureMembership, requireRole(...ROLES_LECTURA_ROSTER)] },
     async (request, reply) => {
-      const { ligaId } = request.query;
+      const { ligaId, temporadaId } = request.query;
       const req = request as AuthRequest;
       if (!ligaId || req.ligaId !== ligaId) {
         return reply.status(400).send({ code: 'VALIDATION', message: 'ligaId es requerido' });
       }
 
+      const temporadaIdResolved = await resolveTemporadaIdForLiga(ligaId, temporadaId, reply);
+      if (!temporadaIdResolved) return;
+
       const equipos = await prisma.equipo.findMany({
-        where: { ligaId, activo: true },
+        where: { ligaId, temporadaId: temporadaIdResolved, activo: true },
         orderBy: { nombre: 'asc' },
       });
 
       const partidos = await prisma.partido.findMany({
-        where: { ligaId, estado: { in: [...ESTADOS_CERRADOS] as string[] } },
+        where: {
+          ligaId,
+          temporadaId: temporadaIdResolved,
+          estado: { in: [...ESTADOS_CERRADOS] as string[] },
+        },
         include: {
           eventos: true,
           plantilla: true,
@@ -541,4 +560,98 @@ export async function ligaRoutes(app: FastifyInstance) {
       return reply.status(204).send();
     }
   );
+
+  /** Listar temporadas de una liga (miembros con lectura de liga). */
+  app.get<{ Querystring: { ligaId: string } }>(
+    '/liga/temporadas',
+    { preHandler: [app.authenticate, ensureMembership, requireRole(...ROLES_LECTURA_ROSTER)] },
+    async (request, reply) => {
+      const { ligaId } = request.query;
+      const req = request as AuthRequest;
+      if (!ligaId || req.ligaId !== ligaId) {
+        return reply.status(400).send({ code: 'VALIDATION', message: 'ligaId es requerido' });
+      }
+      const liga = await prisma.liga.findUnique({ where: { id: ligaId } });
+      if (!liga) return reply.status(404).send({ code: 'NOT_FOUND', message: 'Liga no encontrada' });
+      const j = await ligaJsonWithTemporadas(liga);
+      return reply.send({ temporadas: j.temporadas, temporadaActiva: j.temporadaActiva });
+    }
+  );
+
+  /** Crear temporada (admin_liga de esa liga o superadmin). */
+  app.post<{
+    Params: { ligaId: string };
+    Body: { etiqueta: string; fechaInicio?: string | null; fechaFin?: string | null; estado?: string };
+  }>('/admin/ligas/:ligaId/temporadas', { preHandler: [app.authenticate] }, async (request, reply) => {
+    const req = request as AuthRequest;
+    const { ligaId } = request.params;
+    if (!req.isSuperAdmin) {
+      if (req.ligaId !== ligaId) {
+        return reply.status(403).send({ code: 'FORBIDDEN', message: 'No autorizado' });
+      }
+      if (!req.roles?.includes('admin_liga')) {
+        return reply.status(403).send({ code: 'FORBIDDEN', message: 'Se requiere admin_liga' });
+      }
+    }
+    const liga = await prisma.liga.findUnique({ where: { id: ligaId } });
+    if (!liga) return reply.status(404).send({ code: 'NOT_FOUND', message: 'Liga no encontrada' });
+    const { etiqueta, fechaInicio, fechaFin, estado } = request.body || {};
+    if (!etiqueta?.trim()) {
+      return reply.status(400).send({ code: 'VALIDATION', message: 'etiqueta es requerida' });
+    }
+    const t = await prisma.temporada.create({
+      data: {
+        ligaId,
+        etiqueta: etiqueta.trim(),
+        estado: estado === 'archivada' ? 'archivada' : 'activa',
+        fechaInicio: fechaInicio ? new Date(fechaInicio) : null,
+        fechaFin: fechaFin ? new Date(fechaFin) : null,
+      },
+    });
+    return reply.status(201).send({
+      id: t.id,
+      ligaId: t.ligaId,
+      etiqueta: t.etiqueta,
+      estado: t.estado,
+      fechaInicio: t.fechaInicio?.toISOString() ?? null,
+      fechaFin: t.fechaFin?.toISOString() ?? null,
+      createdAt: t.createdAt.toISOString(),
+      updatedAt: t.updatedAt.toISOString(),
+    });
+  });
+
+  app.patch<{
+    Params: { id: string };
+    Body: { etiqueta?: string; estado?: string; fechaInicio?: string | null; fechaFin?: string | null };
+  }>('/temporadas/:id', { preHandler: [app.authenticate] }, async (request, reply) => {
+    const req = request as AuthRequest;
+    const { id } = request.params;
+    const t0 = await prisma.temporada.findUnique({ where: { id } });
+    if (!t0) return reply.status(404).send({ code: 'NOT_FOUND', message: 'Temporada no encontrada' });
+    if (!req.isSuperAdmin) {
+      if (req.ligaId !== t0.ligaId || !req.roles?.includes('admin_liga')) {
+        return reply.status(403).send({ code: 'FORBIDDEN', message: 'No autorizado' });
+      }
+    }
+    const { etiqueta, estado, fechaInicio, fechaFin } = request.body || {};
+    const t = await prisma.temporada.update({
+      where: { id },
+      data: {
+        ...(etiqueta?.trim() ? { etiqueta: etiqueta.trim() } : {}),
+        ...(estado === 'archivada' || estado === 'activa' ? { estado } : {}),
+        ...(fechaInicio !== undefined ? { fechaInicio: fechaInicio ? new Date(fechaInicio) : null } : {}),
+        ...(fechaFin !== undefined ? { fechaFin: fechaFin ? new Date(fechaFin) : null } : {}),
+      },
+    });
+    return reply.send({
+      id: t.id,
+      ligaId: t.ligaId,
+      etiqueta: t.etiqueta,
+      estado: t.estado,
+      fechaInicio: t.fechaInicio?.toISOString() ?? null,
+      fechaFin: t.fechaFin?.toISOString() ?? null,
+      createdAt: t.createdAt.toISOString(),
+      updatedAt: t.updatedAt.toISOString(),
+    });
+  });
 }

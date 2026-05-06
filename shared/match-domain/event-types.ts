@@ -1,4 +1,4 @@
-import type { PeriodType, TeamSide } from './types';
+import type { PeriodType, TeamSide } from './types.js';
 
 export type MatchEventType =
   | 'match_started'

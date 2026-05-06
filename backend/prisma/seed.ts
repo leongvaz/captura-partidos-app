@@ -11,14 +11,26 @@ async function main() {
   const anotadorPruebas1PinHash = await bcrypt.hash('1111', 10);
   const anotadorPruebas1PasswordHash = await bcrypt.hash('1111', 10);
 
+  const TEMPORADA_DEMO_ID = '00000000-0000-0000-0000-0000000000T1';
+
   const liga = await prisma.liga.upsert({
     where: { id: '00000000-0000-0000-0000-000000000001' },
     update: {},
     create: {
       id: '00000000-0000-0000-0000-000000000001',
       nombre: 'Liga Amateur Demo',
-      temporada: '2025-2026',
       categorias: '["primera","segunda","veteranos","femenil","varonil"]',
+    },
+  });
+
+  await prisma.temporada.upsert({
+    where: { id: TEMPORADA_DEMO_ID },
+    update: {},
+    create: {
+      id: TEMPORADA_DEMO_ID,
+      ligaId: liga.id,
+      etiqueta: '2025-2026',
+      estado: 'activa',
     },
   });
 
@@ -196,10 +208,11 @@ async function main() {
 
   const equipoA = await prisma.equipo.upsert({
     where: { id: '00000000-0000-0000-0000-000000000004' },
-    update: {},
+    update: { temporadaId: TEMPORADA_DEMO_ID },
     create: {
       id: '00000000-0000-0000-0000-000000000004',
       ligaId: liga.id,
+      temporadaId: TEMPORADA_DEMO_ID,
       nombre: 'Halcones',
       categoria: 'primera',
     },
@@ -207,10 +220,11 @@ async function main() {
 
   const equipoB = await prisma.equipo.upsert({
     where: { id: '00000000-0000-0000-0000-000000000005' },
-    update: {},
+    update: { temporadaId: TEMPORADA_DEMO_ID },
     create: {
       id: '00000000-0000-0000-0000-000000000005',
       ligaId: liga.id,
+      temporadaId: TEMPORADA_DEMO_ID,
       nombre: 'Águilas',
       categoria: 'primera',
     },
@@ -218,10 +232,11 @@ async function main() {
 
   const equipoC = await prisma.equipo.upsert({
     where: { id: '00000000-0000-0000-0000-000000000009' },
-    update: {},
+    update: { temporadaId: TEMPORADA_DEMO_ID },
     create: {
       id: '00000000-0000-0000-0000-000000000009',
       ligaId: liga.id,
+      temporadaId: TEMPORADA_DEMO_ID,
       nombre: 'Tigres',
       categoria: 'primera',
     },
@@ -229,10 +244,11 @@ async function main() {
 
   const equipoD = await prisma.equipo.upsert({
     where: { id: '00000000-0000-0000-0000-00000000000a' },
-    update: {},
+    update: { temporadaId: TEMPORADA_DEMO_ID },
     create: {
       id: '00000000-0000-0000-0000-00000000000a',
       ligaId: liga.id,
+      temporadaId: TEMPORADA_DEMO_ID,
       nombre: 'Lobos',
       categoria: 'primera',
     },

@@ -27,14 +27,27 @@ export type TipoIncidencia =
   | 'expulsion_faltas'
   | 'protesta';
 
+export interface TemporadaRef {
+  id: string;
+  etiqueta: string;
+  estado?: string;
+  fechaInicio?: string | null;
+  fechaFin?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Liga {
   id: string;
   nombre: string;
+  /** Etiqueta de la temporada activa (compatibilidad). */
   temporada: string;
   categorias: string[];
   deporte?: string;
   createdAt: string;
   updatedAt: string;
+  temporadas?: TemporadaRef[];
+  temporadaActiva?: TemporadaRef | null;
 }
 
 export interface Usuario {
@@ -52,6 +65,8 @@ export interface Usuario {
 export interface Equipo {
   id: string;
   ligaId: string;
+  /** Presente en API; datos viejos en IndexedDB pueden no tenerlo. */
+  temporadaId?: string;
   nombre: string;
   categoria: string;
   activo: boolean;
@@ -87,6 +102,7 @@ export interface Cancha {
 export interface Partido {
   id: string;
   ligaId: string;
+  temporadaId?: string;
   localEquipoId: string;
   visitanteEquipoId: string;
   canchaId: string;

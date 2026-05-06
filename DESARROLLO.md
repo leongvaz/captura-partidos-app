@@ -7,6 +7,8 @@
 
 ## Backend (API)
 
+La base de datos es **PostgreSQL** (local o gestionada, p. ej. Render PostgreSQL). Define `DATABASE_URL` en `backend/.env` (ver `backend/.env.example`).
+
 ### Instalación limpia
 
 ```bash
@@ -14,7 +16,7 @@ cd backend
 cp .env.example .env
 npm install
 npx prisma generate
-npx prisma db push
+npx prisma migrate deploy
 npm run db:seed
 npm run dev
 ```

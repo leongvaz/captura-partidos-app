@@ -1,6 +1,6 @@
-import type { MatchEvent } from './event-types';
-import type { LeagueRulesConfig } from './rules-config';
-import type { MatchScore } from './types';
+import type { MatchEvent } from './event-types.js';
+import type { LeagueRulesConfig } from './rules-config.js';
+import type { MatchScore } from './types.js';
 
 export function getScoreDelta(event: MatchEvent, rules?: LeagueRulesConfig): number {
   switch (event.type) {

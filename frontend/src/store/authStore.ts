@@ -30,12 +30,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     localStorage.setItem('token', token);
     localStorage.setItem('usuario', JSON.stringify(usuario));
     localStorage.setItem('liga', JSON.stringify(liga));
+    if (liga && typeof liga === 'object' && 'temporadaActiva' in liga && liga.temporadaActiva?.id) {
+      localStorage.setItem('temporadaActiva', JSON.stringify(liga.temporadaActiva));
+    } else {
+      localStorage.removeItem('temporadaActiva');
+    }
     set({ token, usuario, liga });
   },
   logout: () => {
     localStorage.removeItem('token');
     localStorage.removeItem('usuario');
     localStorage.removeItem('liga');
+    localStorage.removeItem('temporadaActiva');
     set({ token: null, usuario: null, liga: null });
   },
   login: async (ligaId, pin) => {

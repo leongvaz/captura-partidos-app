@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { prisma } from '../lib/prisma.js';
 import { signToken } from '../lib/auth.js';
+import { ligaJsonWithTemporadas } from '../lib/temporada.js';
 import type { Rol } from '../lib/rbac.js';
 
 type TipoInvitacion = 'organizador';
@@ -155,14 +156,7 @@ export async function invitacionesRoutes(app: FastifyInstance) {
         roles: [rol],
       });
 
-      const ligaJson = {
-        id: liga.id,
-        nombre: liga.nombre,
-        temporada: liga.temporada,
-        categorias: JSON.parse(liga.categorias || '[]'),
-        createdAt: liga.createdAt.toISOString(),
-        updatedAt: liga.updatedAt.toISOString(),
-      };
+      const ligaJson = await ligaJsonWithTemporadas(liga);
 
       const usuarioJson = {
         id: usuario.id,

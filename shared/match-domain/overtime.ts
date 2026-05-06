@@ -1,5 +1,5 @@
-import type { LeagueRulesConfig } from './rules-config';
-import type { MatchPeriod, MatchState } from './types';
+import type { LeagueRulesConfig } from './rules-config.js';
+import type { MatchPeriod, MatchState } from './types.js';
 
 export function isTie(state: MatchState): boolean {
   return state.score.home === state.score.away;

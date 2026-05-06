@@ -21,6 +21,7 @@ export default function SuperAdminLigaDetalle() {
   const [data, setData] = useState<LigaAdminDetalleResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [temporadaFiltroId, setTemporadaFiltroId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (!ligaId) return;
@@ -29,7 +30,7 @@ export default function SuperAdminLigaDetalle() {
       setLoading(true);
       setError(null);
       try {
-        const d = await obtenerLigaAdminDetalle(ligaId);
+        const d = await obtenerLigaAdminDetalle(ligaId, temporadaFiltroId);
         if (!cancelled) setData(d);
       } catch (e: unknown) {
         if (!cancelled) {
@@ -43,7 +44,7 @@ export default function SuperAdminLigaDetalle() {
     return () => {
       cancelled = true;
     };
-  }, [ligaId]);
+  }, [ligaId, temporadaFiltroId]);
 
   const equiposPorCat = useMemo(() => {
     const eqs = data?.equipos;
@@ -90,10 +91,29 @@ export default function SuperAdminLigaDetalle() {
         </Link>
         <h1 className="text-xl font-bold text-slate-100">{liga.nombre}</h1>
         <p className="text-sm text-slate-400">
-          Deporte: {liga.deporte} · Temporada: {liga.temporada}
+          Deporte: {liga.deporte}
           <span className="text-slate-600 mx-2">·</span>
           ID: <span className="font-mono text-xs">{liga.id}</span>
         </p>
+        {liga.temporadas && liga.temporadas.length > 0 ? (
+          <label className="flex flex-wrap items-center gap-2 text-sm text-slate-300 mt-2">
+            <span className="text-slate-500">Equipos por temporada:</span>
+            <select
+              value={temporadaFiltroId ?? liga.temporadaActiva?.id ?? liga.temporadas[0]?.id ?? ''}
+              onChange={(e) => setTemporadaFiltroId(e.target.value)}
+              className="rounded-lg bg-slate-700 border border-slate-600 text-slate-100 px-2 py-1 text-sm"
+            >
+              {liga.temporadas.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.etiqueta}
+                  {t.estado === 'archivada' ? ' (archivada)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <p className="text-sm text-slate-500 mt-1">Temporada activa: {liga.temporada || '—'}</p>
+        )}
       </div>
 
       <section className="rounded-xl border border-slate-700 bg-slate-800 p-4 space-y-2">

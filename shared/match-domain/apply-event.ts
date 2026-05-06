@@ -1,9 +1,9 @@
-import type { MatchEvent } from './event-types';
-import { shouldDisqualifyPlayer } from './eligibility';
-import { countsAsTeamFoul, getDisplayFouls, getPeriodKey } from './fouls';
-import type { LeagueRulesConfig } from './rules-config';
-import { getScoreDelta } from './score';
-import type { MatchState, TeamGameState, TeamSide } from './types';
+import type { MatchEvent } from './event-types.js';
+import { shouldDisqualifyPlayer } from './eligibility.js';
+import { countsAsTeamFoul, getDisplayFouls, getPeriodKey } from './fouls.js';
+import type { LeagueRulesConfig } from './rules-config.js';
+import { getScoreDelta } from './score.js';
+import type { MatchState, PlayerGameState, TeamGameState, TeamSide } from './types.js';
 
 function getTeamState(state: MatchState, teamSide: TeamSide): TeamGameState {
   return teamSide === 'home' ? state.home : state.away;
@@ -17,7 +17,7 @@ function rebuildTeamCollections(state: MatchState) {
   state.away.benchPlayers = [];
   state.away.disqualifiedPlayers = [];
 
-  for (const player of Object.values(state.players)) {
+  for (const player of Object.values(state.players) as PlayerGameState[]) {
     const team = getTeamState(state, player.teamSide);
     if (player.isDisqualified) {
       team.disqualifiedPlayers.push(player.playerId);
@@ -33,7 +33,7 @@ function rebuildTeamCollections(state: MatchState) {
 }
 
 function updatePlayerFoulDisplay(state: MatchState, rules: LeagueRulesConfig) {
-  for (const player of Object.values(state.players)) {
+  for (const player of Object.values(state.players) as PlayerGameState[]) {
     player.totalFoulsForDisplay = getDisplayFouls(player, rules);
   }
 }

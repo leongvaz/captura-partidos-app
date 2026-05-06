@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { requireRole, ensureMembership, type AuthRequest } from '../lib/auth.js';
 import { ROLES_LECTURA_ROSTER } from '../lib/rbac.js';
+import { resolveTemporadaIdForLiga } from '../lib/temporada.js';
 
 export async function equiposRoutes(app: FastifyInstance) {
   /** Equipo + jugadores activos (solo superadmin, cualquier liga) */
@@ -30,6 +31,7 @@ export async function equiposRoutes(app: FastifyInstance) {
         equipo: {
           id: equipo.id,
           ligaId: equipo.ligaId,
+          temporadaId: equipo.temporadaId,
           nombre: equipo.nombre,
           categoria: equipo.categoria,
           activo: equipo.activo,
@@ -61,20 +63,23 @@ export async function equiposRoutes(app: FastifyInstance) {
       .toLowerCase();
   }
 
-  app.get<{ Querystring: { ligaId?: string } }>(
+  app.get<{ Querystring: { ligaId?: string; temporadaId?: string } }>(
     '/equipos',
     { preHandler: [app.authenticate, requireRole(...ROLES_LECTURA_ROSTER)] },
     async (request, reply) => {
       const ligaId = request.query.ligaId || (request as AuthRequest).ligaId;
       if (!ligaId) return reply.status(400).send({ code: 'VALIDATION', message: 'ligaId es requerido' });
+      const tid = await resolveTemporadaIdForLiga(ligaId, request.query.temporadaId, reply);
+      if (!tid) return;
       const list = await prisma.equipo.findMany({
-        where: { ligaId },
+        where: { ligaId, temporadaId: tid },
         orderBy: { nombre: 'asc' },
       });
       return reply.send(
         list.map((e) => ({
           id: e.id,
           ligaId: e.ligaId,
+          temporadaId: e.temporadaId,
           nombre: e.nombre,
           categoria: e.categoria,
           activo: e.activo,
@@ -87,12 +92,12 @@ export async function equiposRoutes(app: FastifyInstance) {
 
   // Registro simple de equipo por capitán (inscripción). Luego se extenderá a solicitudes/aprobación.
   app.post<{
-    Body: { ligaId: string; nombre: string; rama: string; fuerza: string };
+    Body: { ligaId: string; nombre: string; rama: string; fuerza: string; temporadaId?: string };
   }>(
     '/equipos/registro-capitan',
     { preHandler: [app.authenticate, ensureMembership, requireRole('capturista_roster')] },
     async (request, reply) => {
-      const { ligaId, nombre, rama, fuerza } = request.body || {};
+      const { ligaId, nombre, rama, fuerza, temporadaId: temporadaIdBody } = request.body || {};
       if (!ligaId || !nombre || !rama || !fuerza) {
         return reply.status(400).send({
           code: 'VALIDATION',
@@ -105,10 +110,13 @@ export async function equiposRoutes(app: FastifyInstance) {
         return reply.status(404).send({ code: 'NOT_FOUND', message: 'Liga no encontrada' });
       }
 
+      const temporadaId = await resolveTemporadaIdForLiga(ligaId, temporadaIdBody, reply);
+      if (!temporadaId) return;
+
       // Evitar nombres duplicados dentro de la misma combinación rama+fuerza
       const categoria = `${rama}:${fuerza}`;
       const equiposMismaCategoria = await prisma.equipo.findMany({
-        where: { ligaId, categoria, activo: true },
+        where: { ligaId, temporadaId, categoria, activo: true },
         select: { id: true, nombre: true },
       });
       const nombreNorm = normalizarNombreEquipo(nombre);
@@ -125,6 +133,7 @@ export async function equiposRoutes(app: FastifyInstance) {
       const equipo = await prisma.equipo.create({
         data: {
           ligaId,
+          temporadaId,
           duenoId: req.usuarioId,
           nombre,
           categoria,
@@ -134,6 +143,7 @@ export async function equiposRoutes(app: FastifyInstance) {
       return reply.send({
         id: equipo.id,
         ligaId: equipo.ligaId,
+        temporadaId: equipo.temporadaId,
         nombre: equipo.nombre,
         categoria: equipo.categoria,
         activo: equipo.activo,
@@ -144,19 +154,22 @@ export async function equiposRoutes(app: FastifyInstance) {
   );
 
   // Equipos del capitán autenticado en la liga actual
-  app.get(
+  app.get<{ Querystring: { temporadaId?: string } }>(
     '/equipos/mis',
     { preHandler: [app.authenticate, ensureMembership, requireRole('capturista_roster')] },
     async (request, reply) => {
       const req = request as AuthRequest;
+      const tid = await resolveTemporadaIdForLiga(req.ligaId, request.query.temporadaId, reply);
+      if (!tid) return;
       const list = await prisma.equipo.findMany({
-        where: { ligaId: req.ligaId, duenoId: req.usuarioId, activo: true },
+        where: { ligaId: req.ligaId, temporadaId: tid, duenoId: req.usuarioId, activo: true },
         orderBy: { nombre: 'asc' },
       });
       return reply.send(
         list.map((e) => ({
           id: e.id,
           ligaId: e.ligaId,
+          temporadaId: e.temporadaId,
           nombre: e.nombre,
           categoria: e.categoria,
           activo: e.activo,
@@ -175,6 +188,7 @@ export async function equiposRoutes(app: FastifyInstance) {
     return reply.send({
       id: equipo.id,
       ligaId: equipo.ligaId,
+      temporadaId: equipo.temporadaId,
       nombre: equipo.nombre,
       categoria: equipo.categoria,
       activo: equipo.activo,
@@ -205,6 +219,7 @@ export async function equiposRoutes(app: FastifyInstance) {
       return reply.send({
         id: updated.id,
         ligaId: updated.ligaId,
+        temporadaId: updated.temporadaId,
         nombre: updated.nombre,
         categoria: updated.categoria,
         activo: updated.activo,
@@ -231,6 +246,7 @@ export async function equiposRoutes(app: FastifyInstance) {
       return reply.send({
         id: updated.id,
         ligaId: updated.ligaId,
+        temporadaId: updated.temporadaId,
         nombre: updated.nombre,
         categoria: updated.categoria,
         activo: updated.activo,

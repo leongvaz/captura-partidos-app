@@ -43,6 +43,7 @@ export async function syncResumenesPartido(partidoId: string): Promise<void> {
     canastasDe3: number;
     tirosLibresAnotados: number;
     faltas: number;
+    asistencias: number;
     minutosJugados: null;
   }[] = [];
 
@@ -50,6 +51,9 @@ export async function syncResumenesPartido(partidoId: string): Promise<void> {
     const pl = plantillaPorJugador.get(jid);
     if (!pl) continue;
     const player = domainState.players[jid];
+    const asistencias = partido.eventos.filter(
+      (e) => e.jugadorId === jid && e.tipo === 'assist'
+    ).length;
     rows.push({
       partidoId,
       jugadorId: jid,
@@ -60,6 +64,7 @@ export async function syncResumenesPartido(partidoId: string): Promise<void> {
       canastasDe3: player?.fieldGoals3Made ?? 0,
       tirosLibresAnotados: player?.freeThrowsMade ?? 0,
       faltas: player?.totalFoulsForDisplay ?? 0,
+      asistencias,
       minutosJugados: null,
     });
   }

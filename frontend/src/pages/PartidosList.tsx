@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore, ROLES_PARTIDO } from '@/store/authStore';
-import { api } from '@/lib/api';
+import { api, withTemporadaQuery } from '@/lib/api';
 import { db } from '@/lib/db';
 import type { Partido } from '@/types/entities';
 import type { PartidoLocal } from '@/lib/db';
@@ -30,7 +30,9 @@ export default function PartidosList() {
     (async () => {
       setLoading(true);
       try {
-        const fromApi = await api<Partido[]>(`/partidos?ligaId=${ligaId}&fecha=${fecha}`);
+        const fromApi = await api<Partido[]>(
+          withTemporadaQuery(`/partidos?ligaId=${ligaId}&fecha=${fecha}`)
+        );
         const fromDb = await db.partidos.where('ligaId').equals(ligaId).filter((p) => p.fecha === fecha).toArray();
         const byId = new Map<string, Partido | PartidoLocal>();
         for (const p of fromApi) byId.set(p.id, p);

@@ -1,7 +1,7 @@
-import type { MatchEvent } from './event-types';
-import type { RuleViolation } from './errors';
-import type { LeagueRulesConfig } from './rules-config';
-import type { MatchState } from './types';
+import type { MatchEvent } from './event-types.js';
+import type { RuleViolation } from './errors.js';
+import type { LeagueRulesConfig } from './rules-config.js';
+import type { MatchState } from './types.js';
 
 export interface ValidateEventOptions {
   mode?: 'strict' | 'replay';

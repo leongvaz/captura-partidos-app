@@ -106,6 +106,8 @@ async function main() {
   if (!albianas) throw new Error('No encontré el equipo "Albianas"');
 
   const ligaId = albianas.ligaId;
+  const temporadaId = albianas.temporadaId;
+  if (!temporadaId) throw new Error('Equipo Albianas sin temporada asignada');
 
   const curpsUsuario = new Set(
     (await prisma.usuario.findMany({ select: { curp: true } }))
@@ -227,6 +229,7 @@ async function main() {
       equipo = await prisma.equipo.create({
         data: {
           ligaId,
+          temporadaId,
           duenoId: usuario.id,
           nombre: equipoNombre,
           categoria: 'femenil:primera',

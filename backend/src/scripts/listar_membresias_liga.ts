@@ -27,7 +27,8 @@ async function main() {
     usuarioId: m.usuarioId,
   }));
 
-  console.log('Liga:', { id: liga.id, nombre: liga.nombre, temporada: liga.temporada });
+  const temps = await prisma.temporada.findMany({ where: { ligaId: liga.id }, orderBy: { createdAt: 'desc' } });
+  console.log('Liga:', { id: liga.id, nombre: liga.nombre, temporadas: temps.map((t) => ({ id: t.id, etiqueta: t.etiqueta })) });
   console.log('Membresías activas:', resumen.length);
   console.log(resumen);
 

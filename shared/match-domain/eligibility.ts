@@ -1,5 +1,5 @@
-import type { LeagueRulesConfig } from './rules-config';
-import type { PlayerGameState } from './types';
+import type { LeagueRulesConfig } from './rules-config.js';
+import type { PlayerGameState } from './types.js';
 
 export function isPlayerDisqualified(player: PlayerGameState): boolean {
   return player.isDisqualified;

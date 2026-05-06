@@ -8,6 +8,7 @@ import {
   eliminarJugador,
   listarMisEquipos,
   obtenerEquipo,
+  lookupPersonaPorCurp,
   type Jugador,
   type Equipo,
 } from '@/lib/api';
@@ -69,6 +70,7 @@ export default function JugadoresEquipo() {
   const [fotoFile, setFotoFile] = useState<File | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [openSwipeJugadorId, setOpenSwipeJugadorId] = useState<string | null>(null);
+  const [buscandoCurp, setBuscandoCurp] = useState(false);
 
   useEffect(() => {
     if (!equipoId) return;
@@ -118,6 +120,32 @@ export default function JugadoresEquipo() {
       cancelled = true;
     };
   }, [equipoId, usuario, isAdminLiga, isCapitan, ligaIdStore]);
+
+  const buscarCurpEnSistema = async () => {
+    if (!curp.trim() || curp.length < 4 || !ligaIdStore) return;
+    setBuscandoCurp(true);
+    try {
+      const r = await lookupPersonaPorCurp(curp, ligaIdStore);
+      if (r.sugerencia) {
+        setNombre(normalizarNombrePropio(r.sugerencia.nombre));
+        const apParts = r.sugerencia.apellido.trim().split(/\s+/);
+        setApellidoPaterno(apParts[0] || '');
+        setApellidoMaterno(apParts.slice(1).join(' ') || '');
+      } else if (r.persona?.nombreDisplay || r.persona?.apellidoDisplay) {
+        if (r.persona.nombreDisplay) setNombre(normalizarNombrePropio(r.persona.nombreDisplay));
+        const ap = (r.persona.apellidoDisplay || '').trim().split(/\s+/);
+        setApellidoPaterno(ap[0] || '');
+        setApellidoMaterno(ap.slice(1).join(' ') || '');
+      } else {
+        window.alert('No hay datos previos para esta CURP. Completa nombre y apellidos manualmente.');
+      }
+    } catch (err) {
+      console.error(err);
+      window.alert('No se pudo consultar la CURP. Revisa la conexión.');
+    } finally {
+      setBuscandoCurp(false);
+    }
+  };
 
   if (!equipoId) {
     return <div className="p-4 text-slate-400">Falta el identificador del equipo.</div>;
@@ -259,15 +287,28 @@ export default function JugadoresEquipo() {
                 </div>
                 <div>
                   <label className="block text-sm text-slate-300 mb-1">CURP</label>
-                  <input
-                    type="text"
-                    value={curp}
-                    onChange={(e) => setCurp(e.target.value.toUpperCase())}
-                    maxLength={18}
-                    required
-                    className="w-full rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100"
-                    placeholder="18 caracteres en mayúsculas"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={curp}
+                      onChange={(e) => setCurp(e.target.value.toUpperCase())}
+                      maxLength={18}
+                      required
+                      className="flex-1 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100"
+                      placeholder="18 caracteres en mayúsculas"
+                    />
+                    <button
+                      type="button"
+                      onClick={buscarCurpEnSistema}
+                      disabled={buscandoCurp || curp.length < 4}
+                      className="shrink-0 rounded-md bg-slate-700 hover:bg-slate-600 disabled:opacity-50 px-3 py-2 text-xs text-slate-100"
+                    >
+                      {buscandoCurp ? '…' : 'Buscar'}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Si la CURP ya existe en el sistema, puedes precargar nombre y apellidos.
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm text-slate-300 mb-1">

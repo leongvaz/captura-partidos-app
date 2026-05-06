@@ -12,6 +12,7 @@ import { deriveBackendMatchState, validateIncomingBackendEvents } from '../lib/m
 import { syncResumenesPartido } from '../lib/resumenJugadorPartido.js';
 import { etiquetaCancha } from '../lib/canchaEtiqueta.js';
 import { sedeNombrePorIdMap } from '../lib/canchaSedeBatch.js';
+import { defaultTemporadaActivaId, resolveTemporadaIdForLiga } from '../lib/temporada.js';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 
@@ -58,6 +59,7 @@ async function ensurePartidoLigaAndRoles(request: FastifyRequest, reply: Fastify
 function partidoToJson(p: {
   id: string;
   ligaId: string;
+  temporadaId: string;
   localEquipoId: string;
   visitanteEquipoId: string;
   canchaId: string;
@@ -81,6 +83,7 @@ function partidoToJson(p: {
   return {
     id: p.id,
     ligaId: p.ligaId,
+    temporadaId: p.temporadaId,
     localEquipoId: p.localEquipoId,
     visitanteEquipoId: p.visitanteEquipoId,
     canchaId: p.canchaId,
@@ -165,6 +168,7 @@ type JugadorRapidoInput = {
 
 async function ensureEquipoRapido(params: {
   ligaId: string;
+  temporadaId: string;
   categoria: string;
   nombre: string;
   usuarioId: string;
@@ -172,6 +176,7 @@ async function ensureEquipoRapido(params: {
   const candidatos = await prisma.equipo.findMany({
     where: {
       ligaId: params.ligaId,
+      temporadaId: params.temporadaId,
       categoria: params.categoria,
       activo: true,
     },
@@ -185,6 +190,7 @@ async function ensureEquipoRapido(params: {
     data: {
       id: randomUUID(),
       ligaId: params.ligaId,
+      temporadaId: params.temporadaId,
       nombre: params.nombre.trim(),
       categoria: params.categoria,
       duenoId: params.usuarioId,
@@ -275,11 +281,16 @@ export async function partidosRoutes(app: FastifyInstance) {
   });
 
   app.get<{
-    Querystring: { ligaId?: string; fecha?: string; estado?: string };
+    Querystring: { ligaId?: string; fecha?: string; estado?: string; temporadaId?: string };
   }>('/partidos', { preHandler: [app.authenticate, ...preRead] }, async (request, reply) => {
     const ligaId = request.query.ligaId || (request as AuthRequest).ligaId;
     if (!ligaId) return reply.status(400).send({ code: 'VALIDATION', message: 'ligaId es requerido' });
-    const where: { ligaId: string; fecha?: string; estado?: string } = { ligaId };
+    const tid = await resolveTemporadaIdForLiga(ligaId, request.query.temporadaId, reply);
+    if (!tid) return;
+    const where: { ligaId: string; temporadaId: string; fecha?: string; estado?: string } = {
+      ligaId,
+      temporadaId: tid,
+    };
     if (request.query.fecha) where.fecha = request.query.fecha;
     if (request.query.estado) where.estado = request.query.estado as any;
     const list = await prisma.partido.findMany({
@@ -351,14 +362,23 @@ export async function partidosRoutes(app: FastifyInstance) {
     }
 
     const ligaId = req.ligaId;
+    const temporadaId = await defaultTemporadaActivaId(ligaId);
+    if (!temporadaId) {
+      return reply.status(400).send({
+        code: 'SIN_TEMPORADA',
+        message: 'La liga no tiene temporada activa. Crea una temporada primero.',
+      });
+    }
     const equipoLocal = await ensureEquipoRapido({
       ligaId,
+      temporadaId,
       categoria,
       nombre: equipoA,
       usuarioId: req.usuarioId,
     });
     const equipoVisitante = await ensureEquipoRapido({
       ligaId,
+      temporadaId,
       categoria,
       nombre: equipoB,
       usuarioId: req.usuarioId,
@@ -390,6 +410,7 @@ export async function partidosRoutes(app: FastifyInstance) {
       data: {
         id: partidoId,
         ligaId,
+        temporadaId,
         localEquipoId: equipoLocal.id,
         visitanteEquipoId: equipoVisitante.id,
         canchaId: canchaRow.id,
@@ -533,10 +554,23 @@ export async function partidosRoutes(app: FastifyInstance) {
       });
     }
 
+    const loc = await prisma.equipo.findUnique({ where: { id: body.localEquipoId } });
+    const vis = await prisma.equipo.findUnique({ where: { id: body.visitanteEquipoId } });
+    if (!loc || !vis || loc.ligaId !== ligaId || vis.ligaId !== ligaId) {
+      return reply.status(400).send({ code: 'VALIDATION', message: 'Equipos no válidos para esta liga' });
+    }
+    if (loc.temporadaId !== vis.temporadaId) {
+      return reply.status(400).send({
+        code: 'VALIDATION',
+        message: 'Los equipos deben pertenecer a la misma temporada',
+      });
+    }
+
     const partido = await prisma.partido.create({
       data: {
         id: body.id,
         ligaId,
+        temporadaId: loc.temporadaId,
         localEquipoId: body.localEquipoId,
         visitanteEquipoId: body.visitanteEquipoId,
         canchaId: body.canchaId,

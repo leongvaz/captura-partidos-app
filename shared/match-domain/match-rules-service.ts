@@ -1,14 +1,14 @@
-import { applyEvent } from './apply-event';
-import { canFinishMatch, getFinishBlockReasons } from './closing';
-import { deriveMatchState } from './derive-match-state';
-import type { MatchEvent } from './event-types';
-import { MatchRuleError } from './errors';
-import { validateEvent } from './event-validation';
-import { getTeamFoulsByPeriod as cloneTeamFoulsByPeriod } from './fouls';
-import type { LeagueRulesConfig } from './rules-config';
-import { getOfficialScore as cloneOfficialScore } from './score';
-import { shouldStartOvertime as shouldStartOvertimeRule } from './overtime';
-import type { MatchState, TeamSide } from './types';
+import { applyEvent } from './apply-event.js';
+import { canFinishMatch, getFinishBlockReasons } from './closing.js';
+import { deriveMatchState } from './derive-match-state.js';
+import type { MatchEvent } from './event-types.js';
+import { MatchRuleError } from './errors.js';
+import { validateEvent } from './event-validation.js';
+import { getTeamFoulsByPeriod as cloneTeamFoulsByPeriod } from './fouls.js';
+import type { LeagueRulesConfig } from './rules-config.js';
+import { getOfficialScore as cloneOfficialScore } from './score.js';
+import { shouldStartOvertime as shouldStartOvertimeRule } from './overtime.js';
+import type { MatchState, TeamSide } from './types.js';
 
 export function registerGameEvent(
   state: MatchState,

@@ -1,5 +1,5 @@
-import type { LeagueRulesConfig } from './rules-config';
-import type { FinishBlockReason, MatchState } from './types';
+import type { LeagueRulesConfig } from './rules-config.js';
+import type { FinishBlockReason, MatchState } from './types.js';
 
 function hasCompletedFinishablePeriod(state: MatchState, rules: LeagueRulesConfig): boolean {
   if (state.currentPeriod.type === 'regular') {

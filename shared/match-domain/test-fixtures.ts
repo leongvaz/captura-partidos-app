@@ -1,5 +1,5 @@
-import { createInitialMatchState } from './factories';
-import { defaultLeagueRules } from './rules-config';
+import { createInitialMatchState } from './factories.js';
+import { defaultLeagueRules } from './rules-config.js';
 
 export function createBasicMatchFixture() {
   return {

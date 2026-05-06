@@ -1,10 +1,10 @@
-import type { LeagueRulesConfig } from './rules-config';
+import type { LeagueRulesConfig } from './rules-config.js';
 import type {
   MatchState,
   PlayerGameState,
   TeamGameState,
   TeamSide,
-} from './types';
+} from './types.js';
 
 export interface InitialPlayerSeed {
   playerId: string;

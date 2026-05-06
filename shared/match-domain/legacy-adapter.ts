@@ -1,11 +1,11 @@
-import { canFinishMatch, getFinishBlockReasons } from './closing';
-import { deriveMatchState } from './derive-match-state';
-import type { MatchEvent, MatchEventType } from './event-types';
-import { createInitialMatchState } from './factories';
-import type { LeagueRulesConfig } from './rules-config';
-import { defaultLeagueRules } from './rules-config';
-import { shouldStartOvertime } from './overtime';
-import type { MatchClockState, MatchState, PeriodType, TeamSide } from './types';
+import { canFinishMatch, getFinishBlockReasons } from './closing.js';
+import { deriveMatchState } from './derive-match-state.js';
+import type { MatchEvent, MatchEventType } from './event-types.js';
+import { createInitialMatchState } from './factories.js';
+import type { LeagueRulesConfig } from './rules-config.js';
+import { defaultLeagueRules } from './rules-config.js';
+import { shouldStartOvertime } from './overtime.js';
+import type { MatchClockState, MatchState, PeriodType, TeamSide } from './types.js';
 
 export interface LegacyPlantillaLike {
   equipoId: string;

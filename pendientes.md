@@ -77,6 +77,15 @@ Elementos **no contemplados** en los bloques actuales del plan MVP (docs 08, 13)
 
 ---
 
+## Ubicación de ligas y discovery por cercanía (futuro)
+
+- **Datos en modelo/API:** Guardar **ubicación geográfica por liga** (y opcionalmente por sede): coordenadas y/o dirección legible; relacionado con lo ya existente de **sedes** pero con foco en “dónde opera la liga” y **sede principal** o **varias sedes principales** si aplica.
+- **Abrir en mapas:** Enlace o acción que abra la ubicación en **Google Maps / Apple Maps / OSM** (coordenadas o dirección) desde la ficha de la liga o de la sede.
+- **Experiencia tipo “descubrir ligas”:** En el futuro, que el usuario entre a la app, **comparta su ubicación** (API del navegador / permisos en app), y el sistema **recomiende ligas cercanas** (radio configurable, orden por distancia).
+- **Información de contacto ligada al discovery:** Junto a las recomendaciones, mostrar **datos de contacto** de la liga (teléfono, redes, correo, WhatsApp si lo hay, etc.) para que puedan comunicarse sin fricción.
+
+*(Depende de políticas de privacidad, consentimiento explícito de geolocalización y límites de rate en la API.)*
+
 ---
 
 ## Fase 2 — Ligas, inscripción y rol de juegos
@@ -127,4 +136,4 @@ Elementos **no contemplados** en los bloques actuales del plan MVP (docs 08, 13)
 
 ---
 
-*Actualizado: Marzo 2026. Referencia: docs 10 (estado del proyecto), 11–13 (propuestas y plan), 16 (plan Fase 2).*
+*Actualizado: Mayo 2026. Referencia: docs 10 (estado del proyecto), 11–13 (propuestas y plan), 16 (plan Fase 2).*

@@ -10,6 +10,27 @@ function getToken(): string | null {
   return localStorage.getItem('token');
 }
 
+/** ID de la temporada de trabajo (sesión anotador / admin), persistido en login. */
+export function getStoredTemporadaId(): string | null {
+  if (typeof window === 'undefined') return null;
+  const raw = localStorage.getItem('temporadaActiva');
+  if (!raw) return null;
+  try {
+    const j = JSON.parse(raw) as { id?: string };
+    return j.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function withTemporadaQuery(path: string): string {
+  const tid = getStoredTemporadaId();
+  if (!tid) return path;
+  return path.includes('?')
+    ? `${path}&temporadaId=${encodeURIComponent(tid)}`
+    : `${path}?temporadaId=${encodeURIComponent(tid)}`;
+}
+
 type ApiRequestInit = Omit<RequestInit, 'body'> & { body?: unknown };
 
 export async function api<T>(path: string, options: ApiRequestInit = {}): Promise<T> {
@@ -205,6 +226,7 @@ export async function registrarEquipoCapitan(
 export interface Equipo {
   id: string;
   ligaId: string;
+  temporadaId?: string;
   nombre: string;
   categoria: string;
   activo: boolean;
@@ -213,11 +235,13 @@ export interface Equipo {
 }
 
 export async function listarMisEquipos(): Promise<Equipo[]> {
-  return api<Equipo[]>('/equipos/mis');
+  return api<Equipo[]>(withTemporadaQuery('/equipos/mis'));
 }
 
 export async function listarEquiposLiga(ligaId: string): Promise<Equipo[]> {
-  return api<Equipo[]>(`/equipos?ligaId=${encodeURIComponent(ligaId)}`);
+  return api<Equipo[]>(
+    withTemporadaQuery(`/equipos?ligaId=${encodeURIComponent(ligaId)}`)
+  );
 }
 
 export async function obtenerEquipo(equipoId: string): Promise<Equipo> {
@@ -274,6 +298,30 @@ export async function eliminarJugador(id: string): Promise<Jugador> {
   return api<Jugador>(`/jugadores/${id}`, { method: 'DELETE' });
 }
 
+export async function lookupPersonaPorCurp(curp: string, ligaId?: string): Promise<{
+  encontrada: boolean;
+  persona: {
+    id: string;
+    curp: string;
+    nombreDisplay: string | null;
+    apellidoDisplay: string | null;
+    sexo: string | null;
+    fechaNacimiento: string | null;
+  } | null;
+  sugerencia: {
+    nombre: string;
+    apellido: string;
+    ultimaLiga: string;
+    ultimaTemporadaEtiqueta: string;
+  } | null;
+}> {
+  const q = encodeURIComponent(curp.trim().toUpperCase());
+  const base = ligaId
+    ? `/jugadores/lookup-persona?curp=${q}&ligaId=${encodeURIComponent(ligaId)}`
+    : `/jugadores/lookup-persona?curp=${q}`;
+  return api(base);
+}
+
 // Superadmin: gestión de ligas
 export async function listarLigasAdmin(): Promise<Liga[]> {
   return api<Liga[]>('/admin/ligas');
@@ -296,13 +344,27 @@ export interface LigaAdminDetalleEquipo {
 }
 
 export interface LigaAdminDetalleResponse {
-  liga: { id: string; nombre: string; temporada: string; deporte: string; categorias: string[] };
+  liga: {
+    id: string;
+    nombre: string;
+    temporada: string;
+    deporte: string;
+    categorias: string[];
+    temporadas?: import('@/types/entities').TemporadaRef[];
+    temporadaActiva?: import('@/types/entities').TemporadaRef | null;
+  };
   reglas: ReglasLigaConfig;
   equipos: LigaAdminDetalleEquipo[];
 }
 
-export async function obtenerLigaAdminDetalle(ligaId: string): Promise<LigaAdminDetalleResponse> {
-  return api<LigaAdminDetalleResponse>(`/admin/ligas/${ligaId}`);
+export async function obtenerLigaAdminDetalle(
+  ligaId: string,
+  temporadaId?: string | null
+): Promise<LigaAdminDetalleResponse> {
+  const q = temporadaId
+    ? `?temporadaId=${encodeURIComponent(temporadaId)}`
+    : '';
+  return api<LigaAdminDetalleResponse>(`/admin/ligas/${ligaId}${q}`);
 }
 
 export interface EquipoAdminDetalleResponse {
@@ -323,7 +385,8 @@ export interface HistorialPersonaInscripcion {
   jugadorId: string;
   ligaId: string;
   ligaNombre: string;
-  temporada: string;
+  temporadaId: string;
+  temporadaEtiqueta: string;
   deporte: string;
   equipoId: string;
   equipoNombre: string;
@@ -341,7 +404,8 @@ export interface HistorialPersonaPartido {
   folio: string | null;
   estado: string;
   categoriaPartido: string;
-  liga: { id: string; nombre: string; temporada: string; deporte: string };
+  liga: { id: string; nombre: string; deporte: string };
+  temporada: { id: string; etiqueta: string };
   equipo: { id: string; nombre: string; categoria: string };
   rivalNombre: string;
   localEsEquipo: boolean;
@@ -351,6 +415,7 @@ export interface HistorialPersonaPartido {
     canastasDe3: number;
     tirosLibresAnotados: number;
     faltas: number;
+    asistencias?: number;
     minutosJugados: number | null;
   };
 }

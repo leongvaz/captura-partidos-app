@@ -140,6 +140,61 @@ export async function jugadoresRoutes(app: FastifyInstance) {
     }
   );
 
+  app.get<{ Querystring: { curp: string; ligaId?: string } }>(
+    '/jugadores/lookup-persona',
+    { preHandler: [app.authenticate, ensureMembership, requireRole('admin_liga', 'capturista_roster')] },
+    async (request, reply) => {
+      const curpRaw = request.query.curp;
+      if (!curpRaw?.trim()) {
+        return reply.status(400).send({ code: 'VALIDATION', message: 'curp es requerido' });
+      }
+      const curp = curpRaw.trim().toUpperCase();
+      const validCurp = validarCurpBasica(curp);
+      if (!validCurp.ok) {
+        return reply.status(400).send({
+          code: 'CURP_INVALID',
+          message: validCurp.mensaje || 'La CURP no es válida.',
+        });
+      }
+      const persona = await prisma.persona.findUnique({
+        where: { curp },
+        include: {
+          jugadores: {
+            where: { activo: true },
+            include: {
+              equipo: { include: { liga: true, temporada: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 5,
+          },
+        },
+      });
+      if (!persona) {
+        return reply.send({ encontrada: false, persona: null, sugerencia: null });
+      }
+      const ultima = persona.jugadores[0];
+      return reply.send({
+        encontrada: true,
+        persona: {
+          id: persona.id,
+          curp: persona.curp,
+          nombreDisplay: persona.nombreDisplay,
+          apellidoDisplay: persona.apellidoDisplay,
+          sexo: persona.sexo,
+          fechaNacimiento: persona.fechaNacimiento,
+        },
+        sugerencia: ultima
+          ? {
+              nombre: ultima.nombre,
+              apellido: ultima.apellido,
+              ultimaLiga: ultima.equipo.liga.nombre,
+              ultimaTemporadaEtiqueta: ultima.equipo.temporada.etiqueta,
+            }
+          : null,
+      });
+    }
+  );
+
   app.get<{ Params: { id: string } }>(
     '/jugadores/:id',
     { preHandler: [app.authenticate, requireRole(...ROLES_LECTURA_ROSTER)] },
@@ -251,20 +306,23 @@ export async function jugadoresRoutes(app: FastifyInstance) {
 
       // Evitar que una persona (CURP) se registre en más de un equipo dentro de la misma liga/temporada.
       // Nota: esto considera solo jugadores activos.
-      const jugadorConCurpEnLiga = await prisma.jugador.findFirst({
+      const jugadorConCurpEnTemporada = await prisma.jugador.findFirst({
         where: {
           curp: curpTrim,
           activo: true,
-          equipo: { ligaId: req.ligaId },
+          equipo: {
+            ligaId: req.ligaId,
+            temporadaId: equipo.temporadaId,
+          },
           ...(numeroExistente?.id ? { NOT: { id: numeroExistente.id } } : {}),
         },
         include: { equipo: true },
       });
-      if (jugadorConCurpEnLiga) {
+      if (jugadorConCurpEnTemporada) {
         return reply.status(400).send({
           code: 'CURP_YA_REGISTRADA',
           message:
-            `Esta CURP ya está registrada en otro equipo de la liga (${jugadorConCurpEnLiga.equipo?.nombre || 'equipo'}).`,
+            `Esta CURP ya está registrada en otro equipo de esta temporada (${jugadorConCurpEnTemporada.equipo?.nombre || 'equipo'}).`,
         });
       }
 

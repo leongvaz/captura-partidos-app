@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma.js';
 import { signToken } from '../lib/auth.js';
+import { ligaJsonWithTemporadas } from '../lib/temporada.js';
 import { validarCurpBasica } from '../lib/curp.js';
 import { normalizarNombrePropio } from '../lib/nombres.js';
 
@@ -64,14 +65,7 @@ export async function authRoutes(app: FastifyInstance) {
       roles: roles as import('../lib/rbac.js').Rol[],
     });
 
-    const ligaJson = {
-      id: liga.id,
-      nombre: liga.nombre,
-      temporada: liga.temporada,
-      categorias: JSON.parse(liga.categorias || '[]'),
-      createdAt: liga.createdAt.toISOString(),
-      updatedAt: liga.updatedAt.toISOString(),
-    };
+    const ligaJson = await ligaJsonWithTemporadas(liga);
 
     const usuarioJson = {
       id: usuarioEncontrado.id,
@@ -181,14 +175,7 @@ export async function authRoutes(app: FastifyInstance) {
       roles: [rol],
     });
 
-    const ligaJson = {
-      id: liga.id,
-      nombre: liga.nombre,
-      temporada: liga.temporada,
-      categorias: JSON.parse(liga.categorias || '[]'),
-      createdAt: liga.createdAt.toISOString(),
-      updatedAt: liga.updatedAt.toISOString(),
-    };
+    const ligaJson = await ligaJsonWithTemporadas(liga);
 
     const usuarioJson = {
       id: usuario.id,
@@ -237,16 +224,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     let ligaId: string;
     let roles: string[] = [];
-    let ligaJson:
-      | {
-          id: string;
-          nombre: string;
-          temporada: string;
-          categorias: string[];
-          createdAt: string;
-          updatedAt: string;
-        }
-      | null = null;
+    let ligaJson: Awaited<ReturnType<typeof ligaJsonWithTemporadas>> | null = null;
 
     if (membresiasActivas.length === 0) {
       if (!usuario.isSuperAdmin) {
@@ -261,10 +239,13 @@ export async function authRoutes(app: FastifyInstance) {
       ligaJson = {
         id: 'superadmin',
         nombre: 'Modo superadmin',
-        temporada: '',
+        deporte: 'baloncesto',
         categorias: [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        temporadas: [],
+        temporadaActiva: null,
+        temporada: '',
       };
     } else {
       // Por ahora tomamos la primera liga activa; en el futuro se puede elegir.
@@ -278,14 +259,7 @@ export async function authRoutes(app: FastifyInstance) {
 
       ligaId = liga.id;
       roles = membresiasActivas.filter((mm) => mm.ligaId === liga.id).map((mm) => mm.rol);
-      ligaJson = {
-        id: liga.id,
-        nombre: liga.nombre,
-        temporada: liga.temporada,
-        categorias: JSON.parse(liga.categorias || '[]'),
-        createdAt: liga.createdAt.toISOString(),
-        updatedAt: liga.updatedAt.toISOString(),
-      };
+      ligaJson = await ligaJsonWithTemporadas(liga);
     }
 
     const token = signToken({
@@ -396,14 +370,7 @@ export async function authRoutes(app: FastifyInstance) {
       roles: [rol],
     });
 
-    const ligaJson = {
-      id: liga.id,
-      nombre: liga.nombre,
-      temporada: liga.temporada,
-      categorias: JSON.parse(liga.categorias || '[]'),
-      createdAt: liga.createdAt.toISOString(),
-      updatedAt: liga.updatedAt.toISOString(),
-    };
+    const ligaJson = await ligaJsonWithTemporadas(liga);
 
     const usuarioJson = {
       id: usuario.id,

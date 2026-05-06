@@ -59,7 +59,7 @@ export default function RegistroOrganizadora() {
       .then((l) => {
         if (!cancelled) {
           setLigaNombre(l.nombre);
-          setLigaTemporada(l.temporada);
+          setLigaTemporada(l.temporadaActiva?.etiqueta ?? l.temporada);
         }
       })
       .catch(() => {

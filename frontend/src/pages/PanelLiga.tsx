@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
-import { api } from '@/lib/api';
+import { api, getStoredTemporadaId } from '@/lib/api';
 
 interface PartidoPanel {
   id: string;
@@ -41,9 +41,13 @@ export default function PanelLiga() {
       try {
         const query = new URLSearchParams({ ligaId });
         if (conIncidencia) query.set('conIncidencia', 'true');
+        const tid = getStoredTemporadaId();
+        if (tid) query.set('temporadaId', tid);
+        const eqQ = new URLSearchParams({ ligaId });
+        if (tid) eqQ.set('temporadaId', tid);
         const [list, stats] = await Promise.all([
           api<PartidoPanel[]>(`/liga/panel?${query.toString()}`),
-          api<EquipoStats[]>(`/liga/equipos-estadisticas?ligaId=${ligaId}`),
+          api<EquipoStats[]>(`/liga/equipos-estadisticas?${eqQ.toString()}`),
         ]);
         if (!cancelled) {
           setPartidos(list);
