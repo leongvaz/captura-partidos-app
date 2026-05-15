@@ -1,4 +1,4 @@
-﻿-- CreateTable
+-- CreateTable
 CREATE TABLE "Liga" (
     "id" TEXT NOT NULL,
     "nombre" TEXT NOT NULL,
